@@ -37,7 +37,60 @@ describe('mulberry32', () => {
   });
 });
 
+describe('mulberry32 golden vectors', () => {
+  // The seed travels in the shared URL while the coordinates do not, so the
+  // mapping from seed to output sequence is a persisted wire format: changing
+  // it silently invalidates every link anyone has ever shared. These literals
+  // pin that format. If they ever fail, the sequence changed -- treat it as a
+  // breaking change, not a test to update.
+  it('produces the documented sequence for seed 42', () => {
+    const rand = mulberry32(42);
+    expect(Array.from({ length: 5 }, rand)).toEqual([
+      0.6011037519201636, 0.44829055899754167, 0.8524657934904099, 0.6697340414393693,
+      0.17481389874592423,
+    ]);
+  });
+
+  it('produces the documented values through the createRng helpers', () => {
+    const rng = createRng(42);
+    expect(rng.float()).toBe(0.6011037519201636);
+    expect(rng.int(1000)).toBe(448);
+    expect(rng.range(-5, 5)).toBe(3.5246579349040985);
+    expect(rng.bell(2)).toBe(-0.2577190352603793);
+  });
+});
+
 describe('createRng', () => {
+  it('draws every helper from one shared stream', () => {
+    // If each helper had its own generator, consuming a float first would not
+    // shift what int() returns -- and two different call sequences would give
+    // the same answers, which would make layouts irreproducible.
+    const withFloatFirst = createRng(1);
+    withFloatFirst.float();
+    const shifted = withFloatFirst.int(1e9);
+
+    const unshifted = createRng(1).int(1e9);
+    expect(unshifted).toBe(Math.floor(mulberry32(1)() * 1e9));
+    expect(shifted).not.toBe(unshifted);
+  });
+
+  it('chance(0) is never true and chance(1) is always true', () => {
+    const rng = createRng(5);
+    for (let i = 0; i < 100; i++) {
+      expect(rng.chance(0)).toBe(false);
+      expect(rng.chance(1)).toBe(true);
+    }
+  });
+
+  it('chance is roughly calibrated to its probability', () => {
+    const rng = createRng(11);
+    let hits = 0;
+    const n = 10000;
+    for (let i = 0; i < n; i++) if (rng.chance(0.3)) hits++;
+    expect(hits / n).toBeGreaterThan(0.28);
+    expect(hits / n).toBeLessThan(0.32);
+  });
+
   it('exposes float, int, range and pick built on one stream', () => {
     const rng = createRng(99);
     expect(typeof rng.float()).toBe('number');
@@ -74,6 +127,25 @@ describe('createRng', () => {
       return [rng.float(), rng.int(100), rng.range(-5, 5), rng.bell(2)];
     };
     expect(run()).toEqual(run());
+  });
+
+  it('bell() has the spread of a three-uniform sum', () => {
+    // The sum of k uniforms has variance k/12, so bell(1) must have a standard
+    // deviation of sqrt(3/12) = 0.5. A two-uniform version would give 0.408.
+    // The step size this produces is what keeps annealing jumps tight enough
+    // that frames are not repeatedly thrown off the wall.
+    const rng = createRng(13);
+    const n = 40000;
+    let sum = 0;
+    let sumSquares = 0;
+    for (let i = 0; i < n; i++) {
+      const v = rng.bell(1);
+      sum += v;
+      sumSquares += v * v;
+    }
+    const sd = Math.sqrt(sumSquares / n - (sum / n) ** 2);
+    expect(sd).toBeGreaterThan(0.49);
+    expect(sd).toBeLessThan(0.51);
   });
 
   it('bell() is centred on zero and bounded by its spread', () => {

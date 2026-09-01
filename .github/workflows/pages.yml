@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Deploys only after CI has gone green on main, so a commit that fails lint or
+# tests cannot reach the published page.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +16,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Cancelling an in-flight deployment can leave it stuck; let it finish.
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -20,6 +25,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5

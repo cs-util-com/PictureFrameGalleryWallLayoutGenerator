@@ -42,9 +42,14 @@ export function overlapArea(a, b) {
   return ix * iy;
 }
 
-/** True when the rectangles overlap with positive area. */
+/**
+ * True when the rectangles share wall space — that is, overlap with positive
+ * area. Equivalent to `clearance(a, b) < 0` for any rectangle with a real size,
+ * but stated in terms of area so a zero-thickness guide rectangle laid across a
+ * frame is not reported as intersecting it.
+ */
 export function intersects(a, b) {
-  return clearance(a, b) < 0;
+  return overlapArea(a, b) > 0;
 }
 
 /** Centre point of a rectangle. */
@@ -84,8 +89,13 @@ export function clampToBounds(r, wallW, wallH) {
 
 /**
  * Turns a frame 90°, keeping its centre fixed. Mutates in place and toggles
- * `rotated`. Applying it twice restores the original exactly, which is what
- * lets the annealer undo a rejected rotation without cloning state.
+ * `rotated`.
+ *
+ * The operation is its own inverse, so the annealer can undo a rejected
+ * rotation by simply applying it again instead of cloning the whole layout.
+ * That only holds if nothing else moves the frame in between — in particular a
+ * rotate/clamp/rotate/clamp sequence does *not* return to the original
+ * position, so callers must undo before clamping, not after.
  */
 export function rotateRect(r) {
   const cx = r.x + r.w / 2;

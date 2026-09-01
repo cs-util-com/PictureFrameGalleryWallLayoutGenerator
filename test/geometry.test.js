@@ -5,6 +5,7 @@ import {
   intersects,
   boundingBox,
   centerOf,
+  axisSeparation,
   clampToBounds,
   rotateRect,
 } from '../src/geometry.js';
@@ -58,18 +59,59 @@ describe('overlapArea', () => {
   it('returns the smaller area when one rectangle contains the other', () => {
     expect(overlapArea(rect(0, 0, 10, 10), rect(2, 2, 3, 4))).toBe(12);
   });
+
+  it('is zero for rectangles separated on both axes at once', () => {
+    expect(overlapArea(rect(0, 0, 10, 10), rect(20, 20, 10, 10))).toBe(0);
+  });
+
+  it('is zero for rectangles touching at a single corner', () => {
+    expect(overlapArea(rect(0, 0, 10, 10), rect(10, 10, 10, 10))).toBe(0);
+  });
 });
 
 describe('intersects', () => {
-  it('agrees with a negative clearance', () => {
+  it('is true only for rectangles that genuinely share wall space', () => {
+    expect(intersects(rect(0, 0, 10, 10), rect(5, 5, 10, 10))).toBe(true);
+    expect(intersects(rect(0, 0, 10, 10), rect(10, 0, 10, 10))).toBe(false);
+    expect(intersects(rect(0, 0, 10, 10), rect(20, 20, 5, 5))).toBe(false);
+    expect(intersects(rect(0, 0, 10, 10), rect(2, 2, 3, 3))).toBe(true);
+  });
+
+  it('agrees with the independently computed overlap area', () => {
     const pairs = [
       [rect(0, 0, 10, 10), rect(5, 5, 10, 10)],
       [rect(0, 0, 10, 10), rect(10, 0, 10, 10)],
       [rect(0, 0, 10, 10), rect(20, 20, 5, 5)],
+      [rect(0, 0, 10, 10), rect(0, 12, 10, 10)],
     ];
     for (const [a, b] of pairs) {
-      expect(intersects(a, b)).toBe(clearance(a, b) < 0);
+      expect(intersects(a, b)).toBe(overlapArea(a, b) > 0);
     }
+  });
+});
+
+describe('axisSeparation', () => {
+  it('reports the gap on each axis independently', () => {
+    expect(axisSeparation(rect(0, 0, 10, 10), rect(20, 13, 10, 10))).toEqual({ dx: 10, dy: 3 });
+  });
+
+  it('is negative on an axis where the rectangles span a common range', () => {
+    const { dx, dy } = axisSeparation(rect(0, 0, 10, 10), rect(20, 0, 10, 10));
+    expect(dx).toBe(10);
+    expect(dy).toBeLessThan(0);
+  });
+
+  it('is symmetric', () => {
+    const a = rect(3, 7, 12, 4);
+    const b = rect(40, 2, 5, 30);
+    expect(axisSeparation(a, b)).toEqual(axisSeparation(b, a));
+  });
+
+  it('matches clearance on whichever axis is the larger separation', () => {
+    const a = rect(0, 0, 10, 10);
+    const b = rect(20, 13, 10, 10);
+    const { dx, dy } = axisSeparation(a, b);
+    expect(Math.max(dx, dy)).toBe(clearance(a, b));
   });
 });
 

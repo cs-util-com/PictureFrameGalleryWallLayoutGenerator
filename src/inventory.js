@@ -5,6 +5,10 @@
  * The inventory is a list of rows ("two 20 × 30 frames"); the engine works on
  * *instances* ("this particular 20 × 30 frame"), which is what `expandInventory`
  * produces.
+ *
+ * Rows arrive from the URL as well as from the UI, so every entry point here
+ * treats its input as untrusted and returns something well-formed rather than
+ * throwing.
  */
 
 /** Smallest number of frames a layout is still worth generating for. */
@@ -17,16 +21,32 @@ export const MIN_FRAMES = 3;
  */
 export const MAX_FRAMES = 60;
 
+/** Ceiling on inventory rows, so a hostile URL cannot allocate without bound. */
+export const MAX_ROWS = 40;
+
 /** Largest share of the wall the frames should cover when thinning is allowed. */
-const MAX_COVERAGE = 0.4;
+export const MAX_COVERAGE = 0.4;
 
 /** Smallest share of the available frames a thinned selection may keep. */
-const MIN_KEEP_RATIO = 0.6;
+export const MIN_KEEP_RATIO = 0.6;
 
 const DEFAULT_W = 20;
 const DEFAULT_H = 30;
+const MAX_SIDE = 500;
+const MAX_COUNT = 99;
 
+/**
+ * Coerces one field to a whole number, falling back when the value carries no
+ * numeric intent.
+ *
+ * Blank values are treated as absent rather than as zero: an emptied
+ * `<input type="number">` reports `''`, and `Number('')` is 0, which would
+ * otherwise clamp to a 1 cm frame instead of restoring the default.
+ */
 const toInt = (value, fallback) => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'string' && value.trim() === '') return fallback;
+  if (typeof value === 'boolean' || Array.isArray(value)) return fallback;
   const n = Math.round(Number(value));
   return Number.isFinite(n) ? n : fallback;
 };
@@ -35,23 +55,29 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 /**
  * Coerces arbitrary user input into a well-formed inventory. Every downstream
- * module may assume the result holds finite, whole-centimetre, in-range values.
+ * module may assume the result holds finite, whole-centimetre, in-range values
+ * and uniquely identified rows.
  *
- * @param {Array<{w:*, h:*, count:*, id?:*}>} rows
+ * @param {*} rows Anything; non-arrays yield an empty inventory.
  * @returns {Array<{id:number, w:number, h:number, count:number}>}
  */
 export function normalizeInventory(rows) {
-  return rows.map((row, index) => ({
-    id: Number.isFinite(row?.id) ? row.id : index + 1,
-    w: clamp(toInt(row?.w, DEFAULT_W), 1, 500),
-    h: clamp(toInt(row?.h, DEFAULT_H), 1, 500),
-    count: clamp(toInt(row?.count, 0), 0, 99),
+  if (!Array.isArray(rows)) return [];
+  // Ids are assigned here rather than trusted from the input: they arrive from
+  // the URL, and `rowId` is what groups frames together in the hanging list, so
+  // a collision would merge unrelated rows.
+  return rows.slice(0, MAX_ROWS).map((row, index) => ({
+    id: index + 1,
+    w: clamp(toInt(row?.w, DEFAULT_W), 1, MAX_SIDE),
+    h: clamp(toInt(row?.h, DEFAULT_H), 1, MAX_SIDE),
+    count: clamp(toInt(row?.count, 0), 0, MAX_COUNT),
   }));
 }
 
 /** Total number of physical frames described by the inventory. */
 export function totalFrameCount(rows) {
-  return rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+  if (!Array.isArray(rows)) return 0;
+  return rows.reduce((sum, row) => sum + (Number(row?.count) || 0), 0);
 }
 
 /**
@@ -63,32 +89,51 @@ export function totalFrameCount(rows) {
  * `baseW`/`baseH` keep the frame's real, unrotated size so that rotation can be
  * toggled freely without accumulating rounding drift.
  *
- * @param {Array} rows Normalized inventory rows.
+ * @param {*} rows Inventory rows; ideally normalized, but not required to be.
  * @returns {Array} Frame instances, at most MAX_FRAMES of them.
  */
 export function expandInventory(rows) {
+  if (!Array.isArray(rows)) return [];
+
   const frames = [];
   let id = 0;
   for (const row of rows) {
-    for (let i = 0; i < row.count; i++) {
+    const w = clamp(toInt(row?.w, DEFAULT_W), 1, MAX_SIDE);
+    const h = clamp(toInt(row?.h, DEFAULT_H), 1, MAX_SIDE);
+    // Bound the loop itself rather than only its result: an unnormalized
+    // `count` of Infinity would otherwise never terminate.
+    const count = clamp(toInt(row?.count, 0), 0, MAX_COUNT);
+    for (let i = 0; i < count && frames.length < MAX_FRAMES * 2; i++) {
       frames.push({
         id: id++,
-        rowId: row.id,
-        baseW: row.w,
-        baseH: row.h,
-        w: row.w,
-        h: row.h,
-        area: row.w * row.h,
+        rowId: Number.isInteger(row?.id) ? row.id : 0,
+        baseW: w,
+        baseH: h,
+        w,
+        h,
+        area: w * h,
         rotated: false,
         x: 0,
         y: 0,
       });
     }
   }
+
   // Largest first, with the id as a tiebreaker so the order is fully determined
   // by the inventory rather than by the sort implementation.
   frames.sort((a, b) => b.area - a.area || a.id - b.id);
   return frames.slice(0, MAX_FRAMES);
+}
+
+/**
+ * Independent copies of a frame list.
+ *
+ * The engine mutates frames in place — that is what keeps the annealer's inner
+ * loop allocation-free — so anything that restarts the search must start from
+ * its own copy.
+ */
+export function cloneFrames(frames) {
+  return frames.map((f) => ({ ...f }));
 }
 
 /**
@@ -101,15 +146,24 @@ export function expandInventory(rows) {
  *
  * Thinning drops the *smallest* frames first, because a gallery wall is
  * anchored by its large pieces — losing the big ones changes the character of
- * the arrangement far more than losing a few small ones.
+ * the arrangement far more than losing a few small ones. The result is always a
+ * prefix of the largest-first input.
  *
  * @param {Array} frames Instances from expandInventory (largest first).
- * @param {{wallArea:number, useAll:boolean, preferOdd?:boolean, rng:object}} opts
- * @returns {Array} The subset to lay out, still largest first.
+ * @param {{wallW:number, wallH:number, useAll:boolean, preferOdd?:boolean,
+ *          rng:object}} opts
+ * @returns {Array} Caller-owned copies, still largest first. Empty when the
+ *   wall has no usable area.
  */
-export function selectFrames(frames, { wallArea, useAll, preferOdd = false, rng }) {
+export function selectFrames(frames, { wallW, wallH, useAll, preferOdd = false, rng }) {
   if (frames.length === 0) return [];
-  if (useAll) return frames.slice();
+
+  // A wall with no area cannot be reasoned about — a negative or NaN size would
+  // otherwise skip thinning entirely and produce a nonsense layout.
+  const wallArea = wallW * wallH;
+  if (!(wallArea > 0)) return [];
+
+  if (useAll) return cloneFrames(frames);
 
   const floor = Math.min(MIN_FRAMES, frames.length);
   const candidates = frames.slice();
@@ -134,5 +188,5 @@ export function selectFrames(frames, { wallArea, useAll, preferOdd = false, rng 
     }
   }
 
-  return candidates.slice(0, target);
+  return cloneFrames(candidates.slice(0, target));
 }
