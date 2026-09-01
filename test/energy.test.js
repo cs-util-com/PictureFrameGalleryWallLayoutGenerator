@@ -286,6 +286,58 @@ describe('aesthetic terms', () => {
     expect(ordered).toBeLessThan(salon);
   });
 
+  it('leaves a run of three alone but charges from four onwards', () => {
+    // Three frames on a line is a deliberate-looking group; the fourth is where
+    // it starts to read as a grid row. The boundary is the whole point of the
+    // term, so it is tested at exactly three and exactly four.
+    const c = ctx({ order: 0 });
+    const inARow = (n) => Array.from({ length: n }, (_, i) => frame(i * 40, 0, 20, 20));
+    expect(computeEnergy(inARow(3), c).terms.rows).toBe(0);
+    expect(computeEnergy(inARow(4), c).terms.rows).toBeGreaterThan(0);
+    expect(computeEnergy(inARow(5), c).terms.rows).toBeGreaterThan(
+      computeEnergy(inARow(4), c).terms.rows
+    );
+  });
+
+  it('charges more for one long row than for the same excess spread over two', () => {
+    const c = ctx({ order: 0 });
+    const row = (n, y) => Array.from({ length: n }, (_, i) => frame(i * 40, y, 20, 20));
+    // Quadratic in the excess: one run of 7 must cost more than two runs of 5.
+    const oneLong = [...row(7, 0), ...row(3, 200)];
+    const twoShort = [...row(5, 0), ...row(5, 200)];
+    expect(computeEnergy(oneLong, c).terms.rows).toBeGreaterThan(
+      computeEnergy(twoShort, c).terms.rows
+    );
+  });
+
+  it('reads a chain of small steps as one line, not as separate clusters', () => {
+    // Frames at 0, 2, 4, 6 and 8 cm all sit on one visual line. Comparing each
+    // value against the one that started the cluster, rather than against its
+    // predecessor, breaks this into pairs and scores it as no row at all.
+    const c = ctx({ order: 0 });
+    const stepped = [
+      frame(0, 0, 20, 20),
+      frame(100, 2, 20, 20),
+      frame(200, 4, 20, 20),
+      frame(300, 6, 20, 20),
+      frame(400, 8, 20, 20),
+    ];
+    expect(computeEnergy(stepped, c).terms.rows).toBeGreaterThan(0);
+  });
+
+  it('notices a shared top edge even when the centres do not line up', () => {
+    // Frames of differing heights hung from a common top edge read as a row,
+    // though their centre lines are all over the place.
+    const c = ctx({ order: 0 });
+    const hangingLine = [
+      frame(0, 0, 20, 20),
+      frame(100, 0, 20, 30),
+      frame(200, 0, 20, 40),
+      frame(300, 0, 20, 50),
+    ];
+    expect(computeEnergy(hangingLine, c).terms.rows).toBeGreaterThan(0);
+  });
+
   it('charges nothing for rotation mix when rotation is disabled', () => {
     const c = ctx({ allowRotation: false });
     const frames = [
