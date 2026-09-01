@@ -676,6 +676,27 @@ function pairIsSafe(frames, i, j, limits) {
   return true;
 }
 
+/**
+ * Internals exported for testing.
+ *
+ * The move/undo pair is the load-bearing part of the rewrite -- a move that is
+ * not exactly reversed corrupts the search silently, while every end-to-end
+ * assertion still passes, because the output stays legal. That is worth testing
+ * directly rather than only through generateLayout.
+ */
+export const __testing = {
+  proposeMove,
+  undoMove,
+  buildMoveDistribution,
+  MOVE_KINDS: {
+    MOVE_TRANSLATE,
+    MOVE_ROTATE,
+    MOVE_SWAP,
+    MOVE_RELOCATE,
+    MOVE_NUDGE_ALL,
+  },
+};
+
 /** Slides the finished arrangement so its bounding box sits centred on the wall. */
 function centerOnWall(frames, wallW, wallH) {
   const box = boundingBox(frames);
