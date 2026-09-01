@@ -1,0 +1,32 @@
+{
+  "name": "gallery-wall-layout-generator",
+  "version": "1.0.0",
+  "description": "Deterministic, seed-based layout generator for picture frame gallery walls.",
+  "type": "module",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cs-util-com/PictureFrameGalleryWallLayoutGenerator.git"
+  },
+  "scripts": {
+    "start": "npx --yes http-server . -p 8080 -c-1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run lint && npm run format:check && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
+  }
+}
