@@ -112,7 +112,7 @@ export function computeEnergy(frames, ctx) {
     const outX = Math.max(0, -a.x) + Math.max(0, a.x + a.w - ctx.wallW);
     const outY = Math.max(0, -a.y) + Math.max(0, a.y + a.h - ctx.wallH);
     if (outX > 0 || outY > 0) {
-      const escaped = outX * a.h + outY * a.w;
+      const escaped = outX * a.h + outY * a.h;
       const penalty = (escaped / totalArea) * WEIGHTS.bounds;
       terms.bounds += penalty;
       perFrame[i] += penalty;
