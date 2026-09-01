@@ -40,6 +40,7 @@ export function createApp({ document: doc, window: win, storage }) {
   let generateTimer = null;
   let holdTimer = null;
   let holdInterval = null;
+  let flashTimer = null;
   const listeners = [];
 
   const $ = (selector) => doc.querySelector(selector);
@@ -83,6 +84,13 @@ export function createApp({ document: doc, window: win, storage }) {
   }
 
   function regenerate() {
+    // Cancel any pending debounce: without this, rerolling during an unsettled
+    // edit runs the most expensive operation in the app a second time for an
+    // identical result.
+    if (generateTimer) {
+      win.clearTimeout(generateTimer);
+      generateTimer = null;
+    }
     layout = generateLayout({
       inventory: state.inventory,
       wallW: state.wallW,
@@ -97,28 +105,50 @@ export function createApp({ document: doc, window: win, storage }) {
 
   function persist() {
     const query = encodeState(state);
-    win.history.replaceState({}, '', `${win.location.pathname}?${query}`);
+    try {
+      win.history.replaceState({}, '', `${win.location.pathname}?${query}`);
+    } catch {
+      // Safari throttles replaceState and throws once the limit is hit, which a
+      // sustained slider drag can reach. The URL falling behind is not worth
+      // losing the redraw or the saved state over.
+    }
     saveState(storage, state);
   }
 
   /* ---------------------------------------------------------------- drawing */
 
   function renderOutput() {
-    const palette = currentTheme() === 'dark' ? PALETTE.dark : PALETTE.light;
-    $('#preview').innerHTML = renderLayoutSVG(layout.frames, {
-      wallW: state.wallW,
-      wallH: state.wallH,
-      palette,
-    });
+    drawPreview();
 
     $('#notices').textContent = layout.notices
       .map((code) => NOTICE_TEXT[code])
       .filter(Boolean)
       .join(' ');
 
-    $('#status').textContent = describeLayout();
+    // Rewriting an unchanged live region queues a redundant announcement, and
+    // dragging the slider redraws many times a second.
+    const status = describeLayout();
+    if ($('#status').textContent !== status) $('#status').textContent = status;
+
+    // Printing hides the controls, so the sheet has to state its own wall.
+    const summary = $('#print-summary');
+    if (summary) {
+      summary.textContent =
+        `Wall ${state.wallW} × ${state.wallH} cm · ${state.gap} cm between frames` +
+        (state.hangerDrop ? ` · hook ${state.hangerDrop} cm below the frame top` : '');
+    }
+
     renderHangingList();
     renderInventoryNote();
+  }
+
+  /** Draws the preview, in the given palette or the one matching the theme. */
+  function drawPreview(palette) {
+    $('#preview').innerHTML = renderLayoutSVG(layout.frames, {
+      wallW: state.wallW,
+      wallH: state.wallH,
+      palette: palette ?? (currentTheme() === 'dark' ? PALETTE.dark : PALETTE.light),
+    });
   }
 
   function describeLayout() {
@@ -133,11 +163,10 @@ export function createApp({ document: doc, window: win, storage }) {
 
   function renderHangingList() {
     const body = $('#hanging-list').querySelector('tbody');
-    const drop = Number($('#hanger-drop')?.value) || 0;
     const { items } = hangingPlan(layout.frames, {
       wallW: state.wallW,
       wallH: state.wallH,
-      hangerDrop: drop,
+      hangerDrop: state.hangerDrop,
     });
 
     body.replaceChildren(
@@ -162,10 +191,14 @@ export function createApp({ document: doc, window: win, storage }) {
 
   function renderInventoryNote() {
     const owned = totalFrameCount(state.inventory);
-    // The engine caps how many frames it will place; say so rather than
-    // silently laying out fewer than the user asked for.
+    // The engine caps how many frames it considers; say so rather than
+    // silently laying out fewer than the user asked for. `layout.total` is
+    // already the capped figure, so the status line and this note would
+    // otherwise quote two different denominators for the same wall.
     $('#inventory-note').textContent =
-      owned > MAX_FRAMES ? `Only the largest ${MAX_FRAMES} of your ${owned} frames are used.` : '';
+      owned > MAX_FRAMES
+        ? `You have ${owned} frames; only the largest ${MAX_FRAMES} are considered.`
+        : '';
   }
 
   /* --------------------------------------------------------------- controls */
@@ -228,6 +261,7 @@ export function createApp({ document: doc, window: win, storage }) {
     $('#wall-width').value = String(state.wallW);
     $('#wall-height').value = String(state.wallH);
     $('#gap').value = String(state.gap);
+    $('#hanger-drop').value = String(state.hangerDrop ?? 0);
     $('#order').value = String(Math.round(state.options.order * 100));
     $('#opt-rotate').checked = state.options.allowRotation;
     $('#opt-use-all').checked = state.options.useAll;
@@ -258,7 +292,13 @@ export function createApp({ document: doc, window: win, storage }) {
       on($(selector), 'blur', () => syncControls());
     }
 
-    on($('#hanger-drop'), 'input', () => renderHangingList());
+    on($('#hanger-drop'), 'input', () => {
+      state.hangerDrop = decodeState(
+        encodeState({ ...state, hangerDrop: Number($('#hanger-drop').value) || 0 })
+      ).hangerDrop;
+      renderHangingList();
+      persist();
+    });
 
     const toggles = [
       ['#opt-rotate', 'allowRotation'],
@@ -279,9 +319,16 @@ export function createApp({ document: doc, window: win, storage }) {
     });
 
     on($('#btn-add-row'), 'click', () => {
-      if (state.inventory.length >= MAX_ROWS) return;
+      if (state.inventory.length >= MAX_ROWS) {
+        announce(`You can have at most ${MAX_ROWS} frame sizes.`);
+        return;
+      }
       state.inventory.push({ w: 20, h: 30, count: 1 });
       renderInventory();
+      // Put the caret in the new row rather than leaving it on the Add button,
+      // where a screen-reader user would not know the fields exist.
+      focusRow(state.inventory.length - 1, '[data-field="w"]');
+      announce('Frame size added.');
       scheduleGenerate();
     });
 
@@ -311,9 +358,15 @@ export function createApp({ document: doc, window: win, storage }) {
       if (index < 0) return;
 
       if (event.target.classList.contains('btn-remove')) {
+        // Re-rendering destroys the held button and every captured element.
+        stopHold();
         state.inventory.splice(index, 1);
         if (state.inventory.length === 0) state.inventory.push({ w: 20, h: 30, count: 1 });
         renderInventory();
+        // The focused button has just been destroyed; without this a keyboard
+        // user is dropped to the top of the page.
+        focusRow(Math.min(index, state.inventory.length - 1), '.btn-remove');
+        announce(`Frame size removed. ${state.inventory.length} remaining.`);
         scheduleGenerate();
       } else if (event.target.classList.contains('btn-increment')) {
         step(index, +1);
@@ -325,17 +378,32 @@ export function createApp({ document: doc, window: win, storage }) {
     // Press-and-hold to run a count up quickly. Pointer events cover mouse,
     // touch and pen alike; the click handler above keeps it keyboard-operable.
     on($('#inventory-list'), 'pointerdown', (event) => {
-      const index = rowIndex(event.target);
-      if (index < 0) return;
+      // Only the primary button. A right-click opens the context menu and no
+      // matching pointerup ever arrives, so the count would run away.
+      if (event.button !== undefined && event.button !== 0) return;
+
       const delta = event.target.classList.contains('btn-increment')
         ? 1
         : event.target.classList.contains('btn-decrement')
           ? -1
           : 0;
       if (delta === 0) return;
+      if (rowIndex(event.target) < 0) return;
 
+      // Hold on to the button, not to the row's index: removing an earlier row
+      // shifts every index down, and an index captured here would then drive a
+      // different frame size.
+      const button = event.target;
       holdTimer = win.setTimeout(() => {
-        holdInterval = win.setInterval(() => step(index, delta), HOLD_REPEAT_MS);
+        holdInterval = win.setInterval(() => {
+          const current = rowIndex(button);
+          // The row was removed while the button was held.
+          if (current < 0 || !button.isConnected) {
+            stopHold();
+            return;
+          }
+          step(current, delta);
+        }, HOLD_REPEAT_MS);
       }, HOLD_DELAY_MS);
     });
     for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
@@ -371,6 +439,11 @@ export function createApp({ document: doc, window: win, storage }) {
 
     on($('#btn-print'), 'click', () => win.print());
 
+    // Printers render SVG fills, so a dark-palette preview would print a
+    // near-black wall. Swap to the light palette for the duration.
+    on(win, 'beforeprint', () => drawPreview(PALETTE.light));
+    on(win, 'afterprint', () => drawPreview());
+
     on($('#btn-theme'), 'click', () => {
       setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
       renderOutput();
@@ -384,6 +457,19 @@ export function createApp({ document: doc, window: win, storage }) {
         if (!doc.documentElement.dataset.themeExplicit) renderOutput();
       });
     }
+  }
+
+  /** Moves focus to a control inside a given inventory row, if it exists. */
+  function focusRow(index, selector) {
+    const target = $(`#inventory-list .frame-row[data-index="${index}"] ${selector}`);
+    if (target) target.focus();
+    else $('#btn-add-row')?.focus();
+  }
+
+  /** Announces a change that has no other visible confirmation. */
+  function announce(message) {
+    const region = $('#announcements');
+    if (region) region.textContent = message;
   }
 
   function rowIndex(element) {
@@ -425,7 +511,12 @@ export function createApp({ document: doc, window: win, storage }) {
     const original = button.dataset.label ?? button.textContent;
     button.dataset.label = original;
     button.textContent = message;
-    win.setTimeout(() => {
+    // Changing a button's own label is not reliably announced, and this is the
+    // only feedback that a copy or an export succeeded.
+    announce(message);
+    if (flashTimer) win.clearTimeout(flashTimer);
+    flashTimer = win.setTimeout(() => {
+      flashTimer = null;
       button.textContent = button.dataset.label ?? original;
     }, 2000);
   }
@@ -469,7 +560,9 @@ export function createApp({ document: doc, window: win, storage }) {
   return {
     start() {
       state = initialState();
-      if (!state.seed) state.seed = randomSeed();
+      // Seed 0 is a perfectly good seed, and it is the default; testing for
+      // falsiness here silently replaced it and broke ?s=0 links.
+      if (!Number.isFinite(state.seed)) state.seed = randomSeed();
       restoreTheme();
       renderInventory();
       syncControls();
@@ -480,6 +573,7 @@ export function createApp({ document: doc, window: win, storage }) {
 
     stop() {
       if (generateTimer) win.clearTimeout(generateTimer);
+      if (flashTimer) win.clearTimeout(flashTimer);
       stopHold();
       for (const remove of listeners.splice(0)) remove();
     },

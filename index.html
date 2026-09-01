@@ -8,6 +8,19 @@
       content="Plan a picture frame gallery wall: arrange your frames, then get the exact nail positions."
     />
     <title>Gallery Wall Layout Generator</title>
+    <script>
+      // Runs before first paint: without it a visitor whose saved theme differs
+      // from their system preference sees the page render light and then flip.
+      try {
+        var saved = localStorage.getItem('gallery-wall:theme');
+        if (saved === 'dark' || saved === 'light') {
+          document.documentElement.dataset.theme = saved;
+          document.documentElement.dataset.themeExplicit = 'true';
+        }
+      } catch (e) {
+        /* Storage is unavailable in private windows; the CSS default applies. */
+      }
+    </script>
     <link rel="stylesheet" href="src/styles.css" />
     <link
       rel="icon"
@@ -115,7 +128,18 @@
 
           <div class="field slider-field">
             <label for="order">Style</label>
-            <input type="range" id="order" min="0" max="100" step="1" />
+            <input
+              type="range"
+              id="order"
+              min="0"
+              max="100"
+              step="1"
+              aria-describedby="order-help"
+            />
+            <p id="order-help" class="visually-hidden">
+              Zero is a dense salon hang with nothing lined up; one hundred lines frames up into
+              rows and columns.
+            </p>
             <div class="slider-labels" aria-hidden="true">
               <span>Salon hang</span><span>Ordered grid</span>
             </div>
@@ -132,9 +156,11 @@
       </form>
 
       <div class="preview-area">
-        <p id="notices" class="notices" role="status" aria-live="polite"></p>
-        <div class="preview" id="preview"></div>
+        <p id="announcements" class="visually-hidden" role="status" aria-live="polite"></p>
+        <p id="notices" class="notices" role="alert"></p>
+        <div class="preview" id="preview" tabindex="-1"></div>
         <p id="status" class="status" aria-live="polite"></p>
+        <p id="print-summary" class="print-only"></p>
 
         <div class="button-row export-row">
           <button type="button" class="btn" id="btn-export-svg">Download SVG</button>
@@ -147,14 +173,16 @@
           <p class="field-note">
             Measured in centimetres from the top-left corner of the wall, in the order to hang them.
           </p>
-          <div class="table-scroll">
+          <div class="table-scroll" tabindex="0" role="region" aria-labelledby="h-hanging">
             <table id="hanging-list">
               <caption class="visually-hidden">
                 Nail positions for each frame
               </caption>
               <thead>
                 <tr>
-                  <th scope="col">#</th>
+                  <th scope="col">
+                    <span aria-hidden="true">#</span><span class="visually-hidden">Order</span>
+                  </th>
                   <th scope="col">Frame</th>
                   <th scope="col">Nail from left</th>
                   <th scope="col">Nail from ceiling</th>

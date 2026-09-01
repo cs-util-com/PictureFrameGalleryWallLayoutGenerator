@@ -13,8 +13,9 @@
   --surface-sunken: #fbfbfc;
   --text: #1b1d21;
   --text-muted: #62666e;
-  --border: #dcdee3;
-  --border-strong: #b6bac2;
+  --border: #8d939b;
+  --border-strong: #6b7079;
+  --control-surface: #ffffff;
   --accent: #2f5fd0;
   --accent-text: #ffffff;
   --danger: #b3261e;
@@ -26,14 +27,21 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 4%);
 }
 
+/*
+ * The dark palette is defined twice: once for an explicit choice and once for
+ * the system preference. CSS has no way to share one block between an
+ * attribute selector and a media query without a build step, so the two must be
+ * kept in step by hand -- editing only one is an easy and near-invisible bug.
+ */
 [data-theme='dark'] {
   --bg: #101216;
   --surface: #181b21;
   --surface-sunken: #14161b;
   --text: #e7e9ee;
   --text-muted: #9aa1ad;
-  --border: #2c313a;
-  --border-strong: #3d444f;
+  --border: #6d757f;
+  --border-strong: #8b939e;
+  --control-surface: #1f232b;
   --accent: #7ba2f5;
   --accent-text: #10131a;
   --danger: #f2836f;
@@ -48,8 +56,9 @@
     --surface-sunken: #14161b;
     --text: #e7e9ee;
     --text-muted: #9aa1ad;
-    --border: #2c313a;
-    --border-strong: #3d444f;
+    --border: #6d757f;
+    --border-strong: #8b939e;
+    --control-surface: #1f232b;
     --accent: #7ba2f5;
     --accent-text: #10131a;
     --danger: #f2836f;
@@ -314,6 +323,41 @@ input[type='number']:hover {
   }
 }
 
+/*
+ * Narrow screens, and the 400% zoom case WCAG 1.4.10 asks about. The fixed
+ * controls need 208px of the row; below this the two size fields would be
+ * squeezed to about ten pixels of content, so wrap onto a second line instead.
+ */
+@media (max-width: 420px) {
+  .table-head {
+    display: none;
+  }
+
+  .frame-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'width height'
+      'stepper remove';
+    row-gap: 6px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .frame-row .stepper {
+    grid-area: stepper;
+  }
+
+  .frame-row .btn-remove {
+    grid-area: remove;
+    justify-self: end;
+  }
+
+  .stepper input[type='number'] {
+    width: 100%;
+  }
+}
+
 .stepper .btn-icon:first-child {
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
@@ -395,7 +439,7 @@ input[type='range'] {
   padding: 9px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--control-surface);
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -431,7 +475,7 @@ input[type='range'] {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--control-surface);
   color: inherit;
   font-size: 1.1rem;
   line-height: 1;
@@ -493,6 +537,10 @@ input[type='range'] {
   justify-content: center;
 }
 
+.print-only {
+  display: none;
+}
+
 .table-scroll {
   overflow-x: auto;
 }
@@ -548,7 +596,13 @@ tbody tr:last-child td {
  * the nail positions, on paper, without the controls.
  */
 @media print {
-  :root {
+  /*
+   * Matches the specificity of the auto-dark block above (0,2,0), which would
+   * otherwise win for a visitor on a dark system who never touched the toggle.
+   * Media queries contribute no specificity of their own.
+   */
+  :root,
+  :root:not([data-theme='never']) {
     --bg: #fff;
     --surface: #fff;
     --surface-sunken: #fff;
@@ -556,6 +610,7 @@ tbody tr:last-child td {
     --text-muted: #444;
     --border: #999;
     --border-strong: #666;
+    --control-surface: #fff;
     --shadow: none;
   }
 
@@ -570,6 +625,17 @@ tbody tr:last-child td {
   #btn-theme,
   .app-footer {
     display: none;
+  }
+
+  /* The controls are hidden, so the sheet must state the wall it is for. */
+  .print-only {
+    display: block;
+    text-align: center;
+    font-size: 0.9rem;
+  }
+
+  .table-scroll {
+    overflow: visible;
   }
 
   .app {

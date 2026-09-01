@@ -16,10 +16,16 @@ const STORAGE_KEY = 'gallery-wall:state';
 /** Bumped only when stored data can no longer be read; older data is discarded. */
 const STORAGE_VERSION = 1;
 
+/** Generous upper bound on one encoded inventory row, e.g. "500x500x99". */
+const MAX_ROW_CHARS = 16;
+
 const LIMITS = {
   wall: { min: 20, max: 2000 },
   gap: { min: 0, max: 100 },
   seed: { min: 0, max: 2147483647 },
+  // Encoded in millimetres so half-centimetre precision survives an integer
+  // round trip.
+  hangerDrop: { min: 0, max: 500 },
 };
 
 /** The wall a first-time visitor sees. */
@@ -32,6 +38,8 @@ export const DEFAULT_STATE = Object.freeze({
   wallW: 300,
   wallH: 200,
   gap: 7,
+  /** How far below the frame's top edge its hook or taut wire sits, in cm. */
+  hangerDrop: 0,
   seed: 0,
   options: Object.freeze({
     allowRotation: true,
@@ -74,15 +82,14 @@ export function encodeState(state) {
   params.set('w', String(state.wallW));
   params.set('h', String(state.wallH));
   params.set('g', String(state.gap));
+  params.set('k', String(Math.round((state.hangerDrop ?? 0) * 10)));
   params.set('s', String(state.seed));
   params.set('o', String(Math.round(state.options.order * 100)));
   params.set('r', state.options.allowRotation ? '1' : '0');
   params.set('a', state.options.useAll ? '1' : '0');
   params.set('d', state.options.preferOdd ? '1' : '0');
   params.set('m', state.options.mixSizes ? '1' : '0');
-  // Underscores and the size separator survive as themselves; encoding them
-  // would triple the length of the inventory parameter for no benefit.
-  return params.toString().replace(/%5F/g, '_');
+  return params.toString();
 }
 
 /**
@@ -102,6 +109,7 @@ export function decodeState(search) {
     wallW: intOr(params.get('w'), defaults.wallW, LIMITS.wall),
     wallH: intOr(params.get('h'), defaults.wallH, LIMITS.wall),
     gap: intOr(params.get('g'), defaults.gap, LIMITS.gap),
+    hangerDrop: intOr(params.get('k'), 0, LIMITS.hangerDrop) / 10,
     seed: intOr(params.get('s'), defaults.seed, LIMITS.seed),
     options: {
       allowRotation: flag(params.get('r'), defaults.options.allowRotation),
@@ -116,9 +124,10 @@ export function decodeState(search) {
 /** Parses `WxHxCOUNT_WxHxCOUNT`, discarding anything that is not three numbers. */
 function parseInventory(raw) {
   if (!raw) return [];
+  // Bound the work before splitting, not after: `split` would materialise the
+  // whole array first, so slicing afterwards bounded only the result.
   const rows = raw
-    // Bound the work before parsing: a hostile URL should not be able to make
-    // the app allocate one object per megabyte of query string.
+    .slice(0, MAX_ROWS * MAX_ROW_CHARS)
     .split('_')
     .slice(0, MAX_ROWS)
     .map((part) => {
@@ -174,6 +183,7 @@ function withDefaults(state) {
     wallW: intOr(state.wallW, DEFAULT_STATE.wallW, LIMITS.wall),
     wallH: intOr(state.wallH, DEFAULT_STATE.wallH, LIMITS.wall),
     gap: intOr(state.gap, DEFAULT_STATE.gap, LIMITS.gap),
+    hangerDrop: intOr((state.hangerDrop ?? 0) * 10, 0, LIMITS.hangerDrop) / 10,
     seed: intOr(state.seed, DEFAULT_STATE.seed, LIMITS.seed),
     options: { ...DEFAULT_STATE.options, ...(state.options || {}) },
   };

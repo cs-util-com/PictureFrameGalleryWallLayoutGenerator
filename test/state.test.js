@@ -9,6 +9,7 @@ const custom = {
   wallW: 250,
   wallH: 180,
   gap: 4,
+  hangerDrop: 2.5,
   seed: 987654,
   options: { allowRotation: false, useAll: true, preferOdd: false, mixSizes: true, order: 0.25 },
 };
@@ -72,6 +73,25 @@ describe('encodeState / decodeState', () => {
       };
       expect(decodeState(encodeState({ ...custom, options })).options).toEqual(options);
     }
+  });
+});
+
+describe('the hook drop', () => {
+  it('travels in the link, because the nail table is the deliverable', () => {
+    expect(decodeState(encodeState(custom)).hangerDrop).toBe(2.5);
+  });
+
+  it('keeps half-centimetre precision', () => {
+    for (const drop of [0, 0.5, 1, 2.5, 7.5, 50]) {
+      expect(decodeState(encodeState({ ...custom, hangerDrop: drop })).hangerDrop).toBe(drop);
+    }
+  });
+
+  it('defaults to zero and clamps nonsense', () => {
+    expect(decodeState('').hangerDrop).toBe(0);
+    expect(decodeState('k=-40').hangerDrop).toBeGreaterThanOrEqual(0);
+    expect(decodeState('k=99999').hangerDrop).toBeLessThanOrEqual(50);
+    expect(Number.isFinite(decodeState('k=abc').hangerDrop)).toBe(true);
   });
 });
 

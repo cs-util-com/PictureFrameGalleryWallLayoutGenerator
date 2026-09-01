@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createApp } from '../src/app.js';
+import * as layoutModule from '../src/layout.js';
 
 // The jsdom environment rewrites import.meta.url to an http URL, so resolve the
 // page against the project root instead.
@@ -14,6 +15,10 @@ const mount = (search = '') => {
   document.documentElement.innerHTML = html
     .replace(/^[\s\S]*?<html[^>]*>/, '')
     .replace(/<\/html>[\s\S]*$/, '');
+  // data-theme lives on <html> itself, so replacing innerHTML does not clear it
+  // and it would leak from one test to the next.
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute('data-theme-explicit');
   window.history.replaceState({}, '', '/' + search);
   app = createApp({ document, window, storage: null });
   app.start();
@@ -62,7 +67,24 @@ describe('markup', () => {
 
   it('marks the live regions so changes are announced', () => {
     expect($('#status').getAttribute('aria-live')).toBe('polite');
-    expect($('#notices').getAttribute('role')).toBe('status');
+    // A region hidden while empty is not in the accessibility tree when its
+    // first message lands, so notices are an alert and transient confirmations
+    // go to a permanently present, visually hidden region.
+    expect($('#notices').getAttribute('role')).toBe('alert');
+    expect($('#announcements').getAttribute('role')).toBe('status');
+    expect($('#announcements').getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('gives the skip link a target that can actually take focus', () => {
+    const target = document.querySelector($('.skip-link').getAttribute('href'));
+    expect(target).not.toBeNull();
+    expect(target.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('lets a keyboard user reach the scrollable nail table', () => {
+    const region = document.querySelector('.table-scroll');
+    expect(region.getAttribute('tabindex')).toBe('0');
+    expect(region.getAttribute('aria-labelledby')).toBeTruthy();
   });
 
   it('declares the document language as English', () => {
@@ -196,6 +218,52 @@ describe('reacting to input', () => {
   });
 });
 
+describe('the press-and-hold stepper', () => {
+  beforeEach(() => mount());
+
+  // jsdom has no PointerEvent constructor; a MouseEvent carries the `button`
+  // property the handler needs and dispatches under the pointerdown name.
+  const hold = (button, init = {}) =>
+    button.dispatchEvent(
+      new window.MouseEvent('pointerdown', { bubbles: true, button: 0, ...init })
+    );
+
+  it('repeats while held', () => {
+    const row = $('#inventory-list .frame-row');
+    const count = row.querySelector('[data-field="count"]');
+    const before = Number(count.value);
+    hold(row.querySelector('.btn-increment'));
+    vi.advanceTimersByTime(1000);
+    document.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true }));
+    expect(Number(count.value)).toBeGreaterThan(before);
+  });
+
+  it('stops when the row it was driving is removed', () => {
+    // The repeat resolved its row by index. Removing an earlier row shifts
+    // every index down, so a held button silently started editing a different
+    // frame size.
+    const rows = () => [...document.querySelectorAll('#inventory-list .frame-row')];
+    const secondCount = () => rows()[1].querySelector('[data-field="count"]').value;
+    hold(rows()[1].querySelector('.btn-increment'));
+    vi.advanceTimersByTime(600);
+    rows()[0].querySelector('.btn-remove').click();
+    const afterRemoval = secondCount();
+    vi.advanceTimersByTime(2000);
+    expect(secondCount()).toBe(afterRemoval);
+  });
+
+  it('ignores a non-primary button, which never gets a matching release', () => {
+    // A right-click opens the context menu, so no pointerup arrives and the
+    // count runs away on its own.
+    const row = $('#inventory-list .frame-row');
+    const count = row.querySelector('[data-field="count"]');
+    const before = Number(count.value);
+    hold(row.querySelector('.btn-increment'), { button: 2, isPrimary: true });
+    vi.advanceTimersByTime(3000);
+    expect(Number(count.value)).toBe(before);
+  });
+});
+
 describe('the seed and the shareable URL', () => {
   beforeEach(() => mount());
 
@@ -204,6 +272,26 @@ describe('the seed and the shareable URL', () => {
     expect(params.get('s')).toBeTruthy();
     expect(params.get('i')).toBeTruthy();
     expect(params.get('w')).toBe('300');
+  });
+
+  it('honours seed 0 from a link instead of treating it as missing', () => {
+    app.stop();
+    mount('?i=20x30x2_13x18x2_10x15x4&w=300&h=200&g=7&k=0&s=0&o=50&r=1&a=0&d=1&m=1');
+    expect($('#seed').textContent).toBe('0');
+    expect(new URLSearchParams(window.location.search).get('s')).toBe('0');
+  });
+
+  it('carries the hook drop in the link, since the nail table needs it', () => {
+    $('#hanger-drop').value = '4';
+    fire($('#hanger-drop'));
+    settle();
+    expect(new URLSearchParams(window.location.search).get('k')).toBe('40');
+  });
+
+  it('restores the hook drop from a link', () => {
+    app.stop();
+    mount('?i=20x30x2&w=300&h=200&g=7&k=25&s=5&o=50&r=1&a=1&d=1&m=1');
+    expect($('#hanger-drop').value).toBe('2.5');
   });
 
   it('changes the layout when rerolled', () => {
@@ -308,11 +396,100 @@ describe('persistence', () => {
 describe('theme', () => {
   beforeEach(() => mount());
 
-  it('toggles between light and dark', () => {
+  it('toggles to dark and reports it accurately', () => {
     const button = $('#btn-theme');
-    const before = document.documentElement.dataset.theme;
     button.click();
-    expect(document.documentElement.dataset.theme).not.toBe(before);
-    expect(button.getAttribute('aria-pressed')).toBeTruthy();
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    // aria-pressed is a string: asserting it is truthy passes for "false" too.
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('toggles back to light', () => {
+    const button = $('#btn-theme');
+    button.click();
+    button.click();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('redraws the preview in the matching palette', () => {
+    const wallFill = () => $('#preview rect.wall').getAttribute('fill');
+    const light = wallFill();
+    $('#btn-theme').click();
+    expect(wallFill()).not.toBe(light);
+  });
+});
+
+describe('cost of redrawing', () => {
+  beforeEach(() => mount());
+
+  it('runs the engine once for a burst of keystrokes, not once each', () => {
+    const spy = vi.spyOn(layoutModule, 'generateLayout');
+    const field = $('#wall-width');
+    for (const value of ['2', '25', '250']) {
+      field.value = value;
+      fire(field);
+    }
+    settle();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not anneal twice when rerolling during a pending edit', () => {
+    const field = $('#wall-width');
+    field.value = '260';
+    fire(field);
+    const spy = vi.spyOn(layoutModule, 'generateLayout');
+    $('#btn-reroll').click();
+    settle();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resilience', () => {
+  beforeEach(() => mount());
+
+  it('keeps working when history.replaceState throws', () => {
+    // Safari throttles replaceState and throws past its limit; a slider drag
+    // at the debounce interval gets close.
+    vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    $('#wall-width').value = '321';
+    fire($('#wall-width'));
+    expect(() => settle()).not.toThrow();
+    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 321 200');
+  });
+
+  it('stops adding rows at the supported maximum', () => {
+    for (let i = 0; i < 60; i++) $('#btn-add-row').click();
+    expect(document.querySelectorAll('#inventory-list .frame-row').length).toBeLessThanOrEqual(40);
+  });
+
+  it('removes its listeners when stopped', () => {
+    const spy = vi.spyOn(layoutModule, 'generateLayout');
+    app.stop();
+    $('#wall-width').value = '277';
+    fire($('#wall-width'));
+    settle();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('focus management', () => {
+  beforeEach(() => mount());
+
+  it('keeps focus in the list when a row is removed', () => {
+    // Re-rendering the list destroys the focused button, dropping a keyboard
+    // user back to the top of the page.
+    const rows = () => [...document.querySelectorAll('#inventory-list .frame-row')];
+    rows()[1].querySelector('.btn-remove').focus();
+    rows()[1].querySelector('.btn-remove').click();
+    expect(document.activeElement).not.toBe(document.body);
+    expect($('#inventory-list').contains(document.activeElement)).toBe(true);
+  });
+
+  it('moves focus into the row it just added', () => {
+    $('#btn-add-row').click();
+    expect($('#inventory-list').contains(document.activeElement)).toBe(true);
   });
 });
