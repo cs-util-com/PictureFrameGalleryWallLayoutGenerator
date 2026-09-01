@@ -148,12 +148,20 @@ h2 {
 
 @media (min-width: 900px) {
   .app {
-    grid-template-columns: minmax(300px, 340px) 1fr;
+    grid-template-columns: minmax(320px, 360px) 1fr;
   }
 
   .sidebar {
     position: sticky;
     top: var(--space);
+  }
+}
+
+/* On a phone the controls are taller than the screen, so show the layout
+   first -- otherwise every change means scrolling back up to see its effect. */
+@media (max-width: 899px) {
+  .preview-area {
+    order: -1;
   }
 }
 
@@ -242,14 +250,24 @@ input[type='number']:hover {
   display: none;
 }
 
-/* Inventory rows: width, height, quantity stepper, remove. */
+/* Inventory rows: width, height, quantity stepper, remove.
+   The sidebar is narrow, so the fixed-width controls are trimmed to leave the
+   size fields wide enough to show a three-digit measurement. */
 
 .table-head,
 .frame-row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 6px;
   align-items: center;
+}
+
+.frame-row .cell-input {
+  padding-inline: 6px;
+}
+
+.frame-row .btn-icon {
+  width: 38px;
 }
 
 .table-head {
@@ -273,11 +291,27 @@ input[type='number']:hover {
 }
 
 .stepper input[type='number'] {
-  width: 52px;
+  width: 42px;
+  padding-inline: 2px;
   border-radius: 0;
   border-left: 0;
   border-right: 0;
   text-align: center;
+}
+
+/* Full-size touch targets once there is room for them. */
+@media (max-width: 899px) {
+  .frame-row {
+    gap: 8px;
+  }
+
+  .frame-row .btn-icon {
+    width: 44px;
+  }
+
+  .stepper input[type='number'] {
+    width: 52px;
+  }
 }
 
 .stepper .btn-icon:first-child {

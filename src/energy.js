@@ -29,7 +29,7 @@ export const WEIGHTS = {
   rows: 4,
   dispersion: 2,
   rotationMix: 3,
-  alignment: 2,
+  alignment: 8,
 };
 
 /** Two edges within this many centimetres count as aligned. */
@@ -38,9 +38,6 @@ const ALIGN_TOLERANCE = 1.5;
 /** A run of more than this many co-linear frames starts to read as a grid row. */
 const ROW_TOLERANCE = 2;
 const MAX_FREE_RUN = 3;
-
-/** Share of aligned frames beyond which extra alignment stops earning credit. */
-const ALIGN_REWARD_CAP = 0.4;
 
 /** Floor on the pairwise distance used to weight the size-mixing term, so two
  * frames at the same centre cannot produce an infinite weight. */
@@ -103,7 +100,8 @@ export function computeEnergy(frames, ctx) {
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  const aligned = new Set();
+  let alignedPairs = 0;
+  let totalPairs = 0;
 
   for (let i = 0; i < n; i++) {
     const a = frames[i];
@@ -112,7 +110,7 @@ export function computeEnergy(frames, ctx) {
     const outX = Math.max(0, -a.x) + Math.max(0, a.x + a.w - ctx.wallW);
     const outY = Math.max(0, -a.y) + Math.max(0, a.y + a.h - ctx.wallH);
     if (outX > 0 || outY > 0) {
-      const escaped = outX * a.h + outY * a.h;
+      const escaped = outX * a.h + outY * a.w;
       const penalty = (escaped / totalArea) * WEIGHTS.bounds;
       terms.bounds += penalty;
       perFrame[i] += penalty;
@@ -141,10 +139,8 @@ export function computeEnergy(frames, ctx) {
         perFrame[j] += penalty;
       }
 
-      if (sharesEdge(a, b)) {
-        aligned.add(i);
-        aligned.add(j);
-      }
+      totalPairs++;
+      if (sharesEdge(a, b)) alignedPairs++;
     }
   }
 
@@ -195,11 +191,20 @@ export function computeEnergy(frames, ctx) {
     terms.rotationMix = rotationMixPenalty(frames);
   }
 
-  // --- Alignment: a reward (negative), scaled by how ordered the user wants
-  // the wall to be. Capped so the annealer cannot chase alignment forever.
-  const alignRatio = Math.min(aligned.size / n, ALIGN_REWARD_CAP);
-  const alignReward = alignRatio * WEIGHTS.alignment * ctx.order;
-  terms.alignment = alignReward === 0 ? 0 : -alignReward;
+  // --- Alignment: what the Style slider actually controls. An ordered hang is
+  // rewarded for lining frames up; a salon hang is penalised for it, so the
+  // slider has range in both directions rather than merely withholding a bonus
+  // at one end.
+  //
+  // Measured over *pairs* that share an edge line. The original counted frames
+  // having any aligned partner and capped that share at 40% -- a threshold most
+  // random layouts already clear, so the term saturated immediately and left
+  // the annealer no gradient to follow. Across the whole slider it changed the
+  // share of aligned pairs by about one percentage point.
+  const alignRatio = totalPairs > 0 ? alignedPairs / totalPairs : 0;
+  const orderBias = 2 * ctx.order - 1;
+  const alignment = -alignRatio * WEIGHTS.alignment * orderBias;
+  terms.alignment = alignment === 0 ? 0 : alignment;
 
   let total = 0;
   for (const value of Object.values(terms)) total += value;

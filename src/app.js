@@ -57,10 +57,10 @@ export function createApp({ document: doc, window: win, storage }) {
     // A pasted link must win over whatever this browser last had open,
     // otherwise sharing a layout would not work.
     if (search && search.length > 1) return decodeState(search);
-    return loadState(storage) ?? { ...structuredCloneState(DEFAULT_STATE), seed: randomSeed() };
+    return loadState(storage) ?? { ...cloneState(DEFAULT_STATE), seed: randomSeed() };
   }
 
-  function structuredCloneState(source) {
+  function cloneState(source) {
     return {
       ...source,
       inventory: source.inventory.map((row) => ({ ...row })),
@@ -239,6 +239,10 @@ export function createApp({ document: doc, window: win, storage }) {
   /* ----------------------------------------------------------------- events */
 
   function bindEvents() {
+    // A form whose only submit path is the Enter key still submits, which would
+    // reload the page and throw away the layout on screen.
+    on($('#controls'), 'submit', (event) => event.preventDefault());
+
     const numberFields = [
       ['#wall-width', 'wallW'],
       ['#wall-height', 'wallH'],
@@ -291,9 +295,16 @@ export function createApp({ document: doc, window: win, storage }) {
       scheduleGenerate();
     });
 
-    // Re-render the row on blur so a field the user emptied shows the value the
-    // engine actually used, rather than staying blank.
-    on($('#inventory-list'), 'focusout', () => renderInventory());
+    // Show the value the engine actually used once a field is left, so a field
+    // the user emptied does not stay blank. Only that one input is touched:
+    // re-rendering the list here would destroy the element the browser is
+    // moving focus to and dump the user back to the top of the page.
+    on($('#inventory-list'), 'focusout', (event) => {
+      const field = event.target.dataset?.field;
+      if (!field) return;
+      const index = rowIndex(event.target);
+      if (index >= 0) event.target.value = String(state.inventory[index][field]);
+    });
 
     on($('#inventory-list'), 'click', (event) => {
       const index = rowIndex(event.target);

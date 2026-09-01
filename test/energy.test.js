@@ -168,13 +168,46 @@ describe('aesthetic terms', () => {
     );
   });
 
-  it('rewards edge alignment, and rewards it more as order increases', () => {
+  it('rewards edge alignment in an ordered hang and penalises it in a salon hang', () => {
+    // The slider is the main aesthetic control, so it has to have real range:
+    // an ordered hang should pull frames into line and a salon hang should
+    // actively avoid lining them up, rather than merely not rewarding it.
     const aligned = [frame(0, 0, 20, 20), frame(30, 0, 20, 20), frame(60, 0, 20, 20)];
-    const ordered = computeEnergy(aligned, ctx({ order: 1 })).terms.alignment;
-    const salon = computeEnergy(aligned, ctx({ order: 0 })).terms.alignment;
-    expect(ordered).toBeLessThan(0);
-    expect(ordered).toBeLessThan(salon);
-    expect(salon).toBe(0);
+    expect(computeEnergy(aligned, ctx({ order: 1 })).terms.alignment).toBeLessThan(0);
+    expect(computeEnergy(aligned, ctx({ order: 0 })).terms.alignment).toBeGreaterThan(0);
+  });
+
+  it('is indifferent to alignment at the middle of the slider', () => {
+    const aligned = [frame(0, 0, 20, 20), frame(30, 0, 20, 20), frame(60, 0, 20, 20)];
+    expect(computeEnergy(aligned, ctx({ order: 0.5 })).terms.alignment).toBeCloseTo(0, 10);
+  });
+
+  it('keeps rewarding further alignment rather than saturating', () => {
+    // Counting frames that have any aligned partner saturates almost at once:
+    // most random layouts already have one. The gradient has to come from how
+    // many *pairs* line up.
+    const c = ctx({ order: 1 });
+    const twoOfFour = [
+      frame(0, 0, 20, 20),
+      frame(30, 0, 20, 20),
+      frame(7, 60, 20, 20),
+      frame(64, 91, 20, 20),
+    ];
+    const allFour = [
+      frame(0, 0, 20, 20),
+      frame(30, 0, 20, 20),
+      frame(0, 30, 20, 20),
+      frame(30, 30, 20, 20),
+    ];
+    expect(computeEnergy(allFour, c).terms.alignment).toBeLessThan(
+      computeEnergy(twoOfFour, c).terms.alignment
+    );
+  });
+
+  it('charges nothing either way when no frames line up', () => {
+    const scattered = [frame(0, 0, 20, 20), frame(37, 43, 14, 26), frame(71, 91, 18, 12)];
+    expect(computeEnergy(scattered, ctx({ order: 1 })).terms.alignment).toBeCloseTo(0, 10);
+    expect(computeEnergy(scattered, ctx({ order: 0 })).terms.alignment).toBeCloseTo(0, 10);
   });
 
   it('penalises long grid-like runs in salon mode but tolerates them when ordered', () => {

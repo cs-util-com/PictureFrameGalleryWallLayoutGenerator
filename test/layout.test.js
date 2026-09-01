@@ -130,6 +130,61 @@ describe('generateLayout: options', () => {
     expect(relaxed.placed).toBeLessThanOrEqual(relaxed.total);
   });
 
+  it('lines up visibly more frames at the ordered end of the slider', () => {
+    // An end-to-end check that the Style slider actually changes the result;
+    // the energy term alone can look right while saturating in practice.
+    const near = (a, b) => Math.abs(a - b) < 1.5;
+    const alignedShare = (frames) => {
+      let aligned = 0;
+      let pairs = 0;
+      for (let i = 0; i < frames.length; i++) {
+        for (let j = i + 1; j < frames.length; j++) {
+          pairs++;
+          const a = frames[i];
+          const b = frames[j];
+          const x =
+            near(a.x, b.x) ||
+            near(a.x + a.w, b.x + b.w) ||
+            near(a.x, b.x + b.w) ||
+            near(a.x + a.w, b.x);
+          const y =
+            near(a.y, b.y) ||
+            near(a.y + a.h, b.y + b.h) ||
+            near(a.y, b.y + b.h) ||
+            near(a.y + a.h, b.y);
+          if (x || y) aligned++;
+        }
+      }
+      return pairs ? aligned / pairs : 0;
+    };
+
+    const measure = (order) => {
+      let sum = 0;
+      let n = 0;
+      for (let seed = 0; seed < 12; seed++) {
+        const { frames } = generateLayout({
+          inventory: [
+            { w: 20, h: 30, count: 3 },
+            { w: 13, h: 18, count: 3 },
+            { w: 10, h: 15, count: 3 },
+          ],
+          wallW: 200,
+          wallH: 160,
+          gap: 6,
+          seed,
+          options: { ...DEFAULT_OPTIONS, useAll: true, order },
+        });
+        if (frames.length > 2) {
+          sum += alignedShare(frames);
+          n++;
+        }
+      }
+      return sum / n;
+    };
+
+    expect(measure(1)).toBeGreaterThan(measure(0) * 1.5);
+  });
+
   it('accepts both ends of the order slider', () => {
     for (const order of [0, 0.5, 1]) {
       const result = run({ options: { ...DEFAULT_OPTIONS, order } });

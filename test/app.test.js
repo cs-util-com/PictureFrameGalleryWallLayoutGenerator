@@ -154,6 +154,38 @@ describe('reacting to input', () => {
     expect(Number(count.value)).toBe(0);
   });
 
+  it('keeps focus when tabbing between inventory fields', () => {
+    // Re-rendering the list on focusout would destroy the element the browser
+    // is moving focus to, dumping the user back to the top of the page.
+    const row = $('#inventory-list .frame-row');
+    const width = row.querySelector('[data-field="w"]');
+    const height = row.querySelector('[data-field="h"]');
+    width.focus();
+    height.focus();
+    width.dispatchEvent(
+      new window.FocusEvent('focusout', { bubbles: true, relatedTarget: height })
+    );
+    expect(document.activeElement).toBe(height);
+    expect(height.isConnected).toBe(true);
+  });
+
+  it('shows the value it fell back to once a cleared field is left', () => {
+    const width = $('#inventory-list .frame-row [data-field="w"]');
+    width.value = '';
+    fire(width);
+    width.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+    expect(width.value).not.toBe('');
+    expect(Number(width.value)).toBeGreaterThan(0);
+  });
+
+  it('does not reload the page when Enter is pressed in a field', () => {
+    // A form with a single text field submits implicitly on Enter, which would
+    // throw away the layout the user is looking at.
+    const submit = new window.Event('submit', { bubbles: true, cancelable: true });
+    $('#controls').dispatchEvent(submit);
+    expect(submit.defaultPrevented).toBe(true);
+  });
+
   it('recovers when a size field is cleared instead of drawing a 1 cm frame', () => {
     const width = $('#inventory-list .frame-row [data-field="w"]');
     width.value = '';
