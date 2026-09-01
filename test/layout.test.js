@@ -74,7 +74,9 @@ describe('generateLayout: hard invariants', () => {
         const asIs = f.w === f.baseW && f.h === f.baseH;
         const turned = f.w === f.baseH && f.h === f.baseW;
         expect(asIs || turned).toBe(true);
-        expect(f.rotated).toBe(!asIs || f.baseW === f.baseH ? f.rotated : false);
+        // The flag must agree with the dimensions: the renderer and the hanging
+        // plan both label frames from it, so a stale flag mislabels the output.
+        if (f.baseW !== f.baseH) expect(f.rotated).toBe(turned);
       }
     }
   });

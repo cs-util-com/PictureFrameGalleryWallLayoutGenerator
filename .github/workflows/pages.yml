@@ -29,8 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Publish only what the page needs. Uploading the repository root would
+      # put the test suite, the lockfile and a 35KB licence on the live site.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r src _site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

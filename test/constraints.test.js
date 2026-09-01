@@ -130,11 +130,21 @@ describe('repairLayout', () => {
     expect(repairLayout(frames, limits(50, 100, 100))).toBe(false);
   });
 
-  it('terminates on frames stacked at exactly the same position', () => {
+  it('separates frames stacked at exactly the same position', () => {
     const frames = [frame(90, 90, 20, 20), frame(90, 90, 20, 20), frame(90, 90, 20, 20)];
-    const result = repairLayout(frames, limits(5));
-    expect(typeof result).toBe('boolean');
-    if (result) expect(minClearance(frames)).toBeGreaterThanOrEqual(5 - EPSILON);
+    expect(repairLayout(frames, limits(5))).toBe(true);
+    expect(minClearance(frames)).toBeGreaterThanOrEqual(5 - EPSILON);
+  });
+
+  it('breaks the tie the same way every time it is run', () => {
+    // Coincident frames have no natural push direction. If the tie-break is not
+    // deterministic, the same seed stops reproducing the same wall.
+    const build = () => [frame(90, 90, 20, 20), frame(90, 90, 20, 20), frame(90, 90, 20, 20)];
+    const a = build();
+    const b = build();
+    repairLayout(a, limits(5));
+    repairLayout(b, limits(5));
+    expect(a).toEqual(b);
   });
 
   it('is deterministic', () => {

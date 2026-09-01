@@ -53,7 +53,8 @@ describe('pngPixelSize', () => {
   });
 
   it('always returns at least one whole pixel', () => {
-    const { width, height } = pngPixelSize(0.1, 0.1);
+    // 0.1cm would round to 1 on its own; 0.05 actually exercises the floor.
+    const { width, height } = pngPixelSize(0.05, 0.05);
     expect(width).toBeGreaterThanOrEqual(1);
     expect(height).toBeGreaterThanOrEqual(1);
     expect(Number.isInteger(width)).toBe(true);

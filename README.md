@@ -21,7 +21,9 @@ link.
   the order to hang them, allowing for how far the hook sits below the frame's
   top edge.
 - Exports to SVG or PNG, and prints the layout together with the nail table.
-- Puts the whole state in the URL, so a link reproduces exactly what you saw.
+- Puts the whole state in the URL — frames, wall, spacing, hook drop, options
+  and seed — so a link reproduces exactly what you saw. The seed alone would
+  not: the same seed against a different inventory gives a different wall.
 
 ## Running it
 
@@ -37,10 +39,26 @@ npm start       # serves the app at http://localhost:8080
 ## Development
 
 ```bash
-npm test        # run the test suite
-npm run lint    # ESLint
-npm run check   # lint + formatting + tests, the same gate CI runs
+npm test          # run the test suite
+npm run lint      # ESLint
+npm run coverage  # tests with a coverage report
+npm run check     # lint + formatting + tests, the same gate CI runs
 ```
+
+CI runs `npm run check` rather than the coverage task: the layout search is
+CPU-bound and v8 instrumentation makes the suite roughly ten times slower, for
+a metric that says little here. The engine's cost is bounded by explicit
+assertions on how much work it does instead of by a timer.
+
+### Testing approach
+
+The geometric invariants are swept rather than spot-checked: layouts are
+generated across walls, gaps, seeds and options, and every one is asserted to be
+physically hangable. The annealer's move/undo pair is tested directly, because a
+move that is not exactly reversed corrupts the search while leaving the output
+legal — so no end-to-end assertion would notice. The PRNG has golden vectors,
+since the seed-to-sequence mapping is effectively a wire format: changing it
+would invalidate every link anyone has shared.
 
 ## How the layout engine works
 
@@ -95,8 +113,10 @@ makes a shared link reproduce a layout exactly.
 | `src/app.js`         | DOM wiring                                            |
 | `src/main.js`        | Browser entry point                                   |
 
-The modules under `src/` are pure apart from `app.js` and `main.js`, which is
-why the engine can be tested without a browser.
+Everything under `src/` is a pure function of its inputs except `app.js`,
+`main.js` and `export.js` — the three that touch the DOM, the clipboard and the
+filesystem. That is why the engine, the renderer and the hanging plan can all be
+tested without a browser.
 
 ## Licence
 

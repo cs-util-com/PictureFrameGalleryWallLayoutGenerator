@@ -136,8 +136,9 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
   // main thread. Because a layout that works for n frames also works for n-1
   // (they are the largest n-1 of the same set), feasibility is monotonic in the
   // count and can be bisected instead -- about six probes rather than 55.
-  // Fast path: almost every real inventory fits on its wall, and testing the
-  // whole set first settles that in a single search instead of bisecting to it.
+  //
+  // Fast path first: almost every real inventory fits on its wall, and testing
+  // the whole set settles that in one search rather than bisecting up to it.
   stats.attempts++;
   best = searchLayout(candidates, wall, spacing, opts, rng, limits, stats, RUNS_PER_ATTEMPT);
   if (best) {
@@ -688,6 +689,7 @@ export const __testing = {
   proposeMove,
   undoMove,
   buildMoveDistribution,
+  settle,
   MOVE_KINDS: {
     MOVE_TRANSLATE,
     MOVE_ROTATE,

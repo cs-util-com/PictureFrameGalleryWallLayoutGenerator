@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { __testing } from '../src/layout.js';
 import { createRng } from '../src/prng.js';
+import { clearance } from '../src/geometry.js';
 
 const { proposeMove, undoMove, buildMoveDistribution, MOVE_KINDS } = __testing;
 
@@ -211,5 +212,77 @@ describe('choosing which frame to relocate', () => {
       chosen.add(move.i);
     }
     expect(chosen.size).toBeGreaterThan(1);
+  });
+});
+
+describe('the settle pass', () => {
+  const { settle } = __testing;
+  const limits = { gap: 5, wallW: 300, wallH: 200 };
+
+  const nearlyAligned = () => [
+    // Two frames whose left edges miss each other by 0.8 cm.
+    { ...frame(0, 20, 20, 40, 40), x: 20, y: 20 },
+    { ...frame(1, 20.8, 65, 30, 30), x: 20.8, y: 65 },
+  ];
+
+  it('turns a near-alignment into an exact one', () => {
+    const frames = nearlyAligned();
+    settle(frames, limits, 1);
+    expect(frames[0].x).toBeCloseTo(frames[1].x, 6);
+  });
+
+  it('leaves a salon hang alone, where nothing should line up', () => {
+    const frames = nearlyAligned();
+    const before = JSON.parse(JSON.stringify(frames));
+    settle(frames, limits, 0);
+    expect(frames).toEqual(before);
+  });
+
+  it('snaps more as the order setting rises', () => {
+    const offBy = (order, offset) => {
+      const frames = [
+        { ...frame(0, 20, 20, 40, 40), x: 20, y: 20 },
+        { ...frame(1, 20 + offset, 65, 30, 30), x: 20 + offset, y: 65 },
+      ];
+      settle(frames, limits, order);
+      return Math.abs(frames[0].x - frames[1].x);
+    };
+    // 1.2cm apart: within tolerance at full order, outside it at half.
+    expect(offBy(1, 1.2)).toBeCloseTo(0, 6);
+    expect(offBy(0.5, 1.2)).toBeCloseTo(1.2, 6);
+  });
+
+  it('never snaps a frame into a violation', () => {
+    // Pulling these into line would push the first two together.
+    const frames = [
+      { ...frame(0, 0, 0, 40, 40), x: 0, y: 0 },
+      { ...frame(1, 0, 0, 40, 40), x: 45.9, y: 0 },
+      { ...frame(2, 0, 0, 40, 40), x: 46, y: 60 },
+    ];
+    settle(frames, limits, 1);
+    for (let i = 0; i < frames.length; i++) {
+      for (let j = i + 1; j < frames.length; j++) {
+        expect(clearance(frames[i], frames[j])).toBeGreaterThanOrEqual(limits.gap - 0.01);
+      }
+    }
+  });
+
+  it('never snaps a frame off the wall', () => {
+    const tight = { gap: 2, wallW: 100, wallH: 100 };
+    const frames = [
+      { ...frame(0, 0, 0, 40, 40), x: 0.4, y: 10 },
+      { ...frame(1, 0, 0, 40, 40), x: 0, y: 55 },
+    ];
+    settle(frames, tight, 1);
+    for (const f of frames) {
+      expect(f.x).toBeGreaterThanOrEqual(-0.01);
+      expect(f.x + f.w).toBeLessThanOrEqual(tight.wallW + 0.01);
+    }
+  });
+
+  it('does nothing to a single frame', () => {
+    const frames = [{ ...frame(0, 0, 0, 40, 40), x: 13.3, y: 21.7 }];
+    settle(frames, limits, 1);
+    expect(frames[0].x).toBe(13.3);
   });
 });
