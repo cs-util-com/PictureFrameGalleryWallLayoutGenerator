@@ -30,6 +30,9 @@ export const WEIGHTS = {
   dispersion: 2,
   rotationMix: 3,
   alignment: 8,
+  // Not part of the total: this one only scores individual frames, to decide
+  // which frame the annealer should try relocating.
+  isolation: 50,
 };
 
 /** Two edges within this many centimetres count as aligned. */
@@ -82,8 +85,15 @@ const emptyTerms = () => ({
  * @param {Array} frames Placed frame instances.
  * @param {object} ctx From createEnergyContext.
  * @returns {{total:number, perFrame:number[], terms:object}}
- *   `perFrame[i]` is frame i's share of the hard penalties, which the annealer
- *   uses to pick the worst-placed frame to relocate.
+ *   `perFrame[i]` scores how badly placed frame i is, and is what the annealer
+ *   uses to choose a frame to relocate. It is deliberately not a decomposition
+ *   of `total`: it combines the frame's share of the hard penalties with how
+ *   isolated it is.
+ *
+ *   Hard penalties alone are not enough. They fall to zero as soon as the
+ *   layout is merely legal, after which every frame scores 0, the "worst"
+ *   frame is always index 0, and the relocate move spends the rest of the run
+ *   flinging the largest frame -- the composition's anchor -- around at random.
  */
 export function computeEnergy(frames, ctx) {
   const n = frames.length;
@@ -102,6 +112,8 @@ export function computeEnergy(frames, ctx) {
   let maxY = -Infinity;
   let alignedPairs = 0;
   let totalPairs = 0;
+  // Closest neighbour for each frame, for the isolation score below.
+  const nearest = new Array(n).fill(Infinity);
 
   for (let i = 0; i < n; i++) {
     const a = frames[i];
@@ -138,6 +150,9 @@ export function computeEnergy(frames, ctx) {
         perFrame[i] += penalty;
         perFrame[j] += penalty;
       }
+
+      if (cl < nearest[i]) nearest[i] = cl;
+      if (cl < nearest[j]) nearest[j] = cl;
 
       totalPairs++;
       if (sharesEdge(a, b)) alignedPairs++;
@@ -205,6 +220,18 @@ export function computeEnergy(frames, ctx) {
   const orderBias = 2 * ctx.order - 1;
   const alignment = -alignRatio * WEIGHTS.alignment * orderBias;
   terms.alignment = alignment === 0 ? 0 : alignment;
+
+  // --- Isolation, per frame only. A frame sitting far from its nearest
+  // neighbour is the one worth moving, whether or not it breaks any rule.
+  // Measured against a typical frame's size so the score is scale-free.
+  if (n > 1) {
+    const typicalSize = Math.sqrt(totalArea / n);
+    for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(nearest[i])) continue;
+      const excess = Math.max(0, nearest[i] - ctx.gap);
+      perFrame[i] += (excess / typicalSize) * WEIGHTS.isolation;
+    }
+  }
 
   let total = 0;
   for (const value of Object.values(terms)) total += value;

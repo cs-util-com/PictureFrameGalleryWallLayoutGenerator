@@ -335,6 +335,50 @@ describe('generateLayout: cost', () => {
     expect(large.stats.energyEvaluations).toBeLessThan(small.stats.energyEvaluations * 6);
   });
 
+  it('does not restart the whole search once per dropped frame', () => {
+    // Shrinking the wall under a large inventory is an ordinary thing to do,
+    // and dropping one frame per full search made it a tab-lock: 55 complete
+    // 3-run searches, tens of seconds of blocked main thread.
+    const result = generateLayout({
+      inventory: [{ w: 30, h: 40, count: 60 }],
+      wallW: 120,
+      wallH: 100,
+      gap: 5,
+      seed: 1,
+      options: { ...DEFAULT_OPTIONS, useAll: true },
+    });
+    expect(result.stats.attempts).toBeLessThan(12);
+    expect(result.placed).toBeGreaterThan(0);
+    expect(isValidLayout(result.frames, { gap: 5, wallW: 120, wallH: 100 })).toBe(true);
+  });
+
+  it('still finds close to as many frames as fit when it has to drop some', () => {
+    // Searching for the count must not cost so much quality that the wall ends
+    // up half empty.
+    const result = generateLayout({
+      inventory: [{ w: 30, h: 40, count: 60 }],
+      wallW: 200,
+      wallH: 160,
+      gap: 4,
+      seed: 3,
+      options: { ...DEFAULT_OPTIONS, useAll: true },
+    });
+    expect(result.placed).toBeGreaterThanOrEqual(10);
+  });
+
+  it('stays responsive when the frames do not fit', () => {
+    const started = Date.now();
+    generateLayout({
+      inventory: [{ w: 30, h: 40, count: 60 }],
+      wallW: 120,
+      wallH: 100,
+      gap: 5,
+      seed: 1,
+      options: { ...DEFAULT_OPTIONS, useAll: true },
+    });
+    expect(Date.now() - started).toBeLessThan(20000);
+  });
+
   it('stays responsive in wall-clock terms too', () => {
     // Deliberately loose: this only catches a catastrophic regression, such as
     // a return to deep-cloning the layout on every iteration.

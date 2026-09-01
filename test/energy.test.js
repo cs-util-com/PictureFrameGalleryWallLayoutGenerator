@@ -97,11 +97,73 @@ describe('hard-constraint terms', () => {
     expect(computeEnergy(inside, c).terms.bounds).toBe(0);
   });
 
+  it('attributes a gap violation to both frames, not just one', () => {
+    const c = ctx({ gap: 10 });
+    const frames = [frame(0, 0, 20, 20), frame(23, 0, 20, 20), frame(0, 200, 20, 20)];
+    const { perFrame } = computeEnergy(frames, c);
+    expect(perFrame[0]).toBeGreaterThan(0);
+    expect(perFrame[1]).toBeGreaterThan(0);
+  });
+
+  it('charges for the area that hangs off the wall, on the correct axis', () => {
+    // A horizontal overhang costs outX * height and a vertical one costs
+    // outY * width -- both are the escaped *area*. Pairing either overhang with
+    // the wrong side makes these two cases differ by 10x, and no other term
+    // in the model would notice.
+    const c = ctx();
+    const offTheLeft = [frame(-10, 50, 10, 100)]; // 10 x 100 cm escapes
+    const offTheTop = [frame(50, -10, 100, 10)]; // 100 x 10 cm escapes
+    expect(computeEnergy(offTheLeft, c).terms.bounds).toBeCloseTo(
+      computeEnergy(offTheTop, c).terms.bounds,
+      6
+    );
+    expect(computeEnergy(offTheLeft, c).terms.bounds).toBeGreaterThan(0);
+  });
+
+  it('scales the overhang charge with how far off the wall the frame is', () => {
+    const c = ctx();
+    const barely = [frame(-2, 50, 20, 20)];
+    const badly = [frame(-15, 50, 20, 20)];
+    expect(computeEnergy(badly, c).terms.bounds).toBeGreaterThan(
+      computeEnergy(barely, c).terms.bounds * 3
+    );
+  });
+
   it('attributes a violation to the frames responsible for it', () => {
     const frames = [frame(10, 10, 20, 20), frame(12, 10, 20, 20), frame(120, 120, 20, 20)];
     const { perFrame } = computeEnergy(frames, ctx());
     expect(perFrame[0]).toBeGreaterThan(perFrame[2]);
     expect(perFrame[1]).toBeGreaterThan(perFrame[2]);
+  });
+});
+
+describe('per-frame attribution', () => {
+  it('marks an isolated frame as worse placed than a clustered one', () => {
+    // The annealer relocates whichever frame scores worst. If only hard
+    // violations are attributed, every score is zero as soon as the layout is
+    // legal -- and it then relocates frame 0 forever, which is the anchor.
+    const c = ctx();
+    const frames = [
+      frame(0, 0, 20, 20),
+      frame(30, 0, 20, 20),
+      frame(0, 30, 20, 20),
+      frame(150, 150, 20, 20), // marooned in a corner
+    ];
+    const { perFrame } = computeEnergy(frames, c);
+    expect(perFrame[3]).toBeGreaterThan(perFrame[0]);
+    expect(perFrame[3]).toBeGreaterThan(perFrame[1]);
+    expect(perFrame[3]).toBeGreaterThan(perFrame[2]);
+  });
+
+  it('still differentiates frames in a layout that breaks no rules', () => {
+    const c = ctx();
+    const frames = [frame(0, 0, 20, 20), frame(30, 0, 20, 20), frame(120, 90, 20, 20)];
+    const { perFrame } = computeEnergy(frames, c);
+    expect(Math.max(...perFrame)).toBeGreaterThan(0);
+  });
+
+  it('treats a single frame as having nothing to be isolated from', () => {
+    expect(computeEnergy([frame(50, 50, 20, 20)], ctx()).perFrame).toEqual([0]);
   });
 });
 
