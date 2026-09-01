@@ -1,0 +1,568 @@
+/*
+ * One stylesheet, organised as: tokens, resets, layout, components, print.
+ *
+ * Colours are defined once as custom properties and swapped for dark mode,
+ * which follows the system preference until the user chooses explicitly.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-sunken: #fbfbfc;
+  --text: #1b1d21;
+  --text-muted: #62666e;
+  --border: #dcdee3;
+  --border-strong: #b6bac2;
+  --accent: #2f5fd0;
+  --accent-text: #ffffff;
+  --danger: #b3261e;
+  --focus: #2f5fd0;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --space: 16px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 4%);
+}
+
+[data-theme='dark'] {
+  --bg: #101216;
+  --surface: #181b21;
+  --surface-sunken: #14161b;
+  --text: #e7e9ee;
+  --text-muted: #9aa1ad;
+  --border: #2c313a;
+  --border-strong: #3d444f;
+  --accent: #7ba2f5;
+  --accent-text: #10131a;
+  --danger: #f2836f;
+  --focus: #7ba2f5;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 30%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #101216;
+    --surface: #181b21;
+    --surface-sunken: #14161b;
+    --text: #e7e9ee;
+    --text-muted: #9aa1ad;
+    --border: #2c313a;
+    --border-strong: #3d444f;
+    --accent: #7ba2f5;
+    --accent-text: #10131a;
+    --danger: #f2836f;
+    --focus: #7ba2f5;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 24px rgb(0 0 0 / 30%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 var(--space) var(--space);
+  background: var(--bg);
+  color: var(--text);
+  font:
+    15px/1.5 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* Visible only to screen readers, and to anyone tabbing to the skip link. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 0 0 var(--radius-sm) 0;
+  z-index: 10;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 0 16px;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  max-width: 1180px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .app {
+    grid-template-columns: minmax(300px, 340px) 1fr;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: var(--space);
+  }
+}
+
+.sidebar,
+.preview-area {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.app-footer {
+  max-width: 1180px;
+  margin: 32px auto 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.app-footer a {
+  color: inherit;
+}
+
+/* -------------------------------------------------------------- components */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  box-shadow: var(--shadow);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.input-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unit {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+input[type='number'] {
+  width: 100%;
+  min-width: 0;
+  /* Comfortably above the 44px minimum touch target on phones. */
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+input[type='number']:hover {
+  border-color: var(--border-strong);
+}
+
+.field-note {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.field-note:empty {
+  display: none;
+}
+
+/* Inventory rows: width, height, quantity stepper, remove. */
+
+.table-head,
+.frame-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.table-head {
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.table-head span:nth-child(3) {
+  grid-column: 3 / 5;
+  text-align: center;
+}
+
+.frame-row {
+  margin-bottom: 8px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+}
+
+.stepper input[type='number'] {
+  width: 52px;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  text-align: center;
+}
+
+.stepper .btn-icon:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.stepper .btn-icon:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.slider-field {
+  margin-top: 18px;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.seed-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.seed {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.seed code {
+  user-select: all;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn {
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-sunken);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn-primary:hover {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+.btn-block {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  /* Holding a stepper should repeat, not select the glyph. */
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.btn-icon:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-sunken);
+}
+
+.btn-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ----------------------------------------------------------------- preview */
+
+.preview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+
+.preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Keep a tall wall from pushing the controls off the screen. */
+  max-height: 72vh;
+}
+
+.status,
+.notices {
+  margin: 0;
+  text-align: center;
+  font-size: 0.87rem;
+  color: var(--text-muted);
+}
+
+.notices:empty {
+  display: none;
+}
+
+.notices {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.export-row {
+  justify-content: center;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+th:first-child,
+td:first-child,
+th:nth-child(2),
+td:nth-child(2) {
+  text-align: left;
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------- print */
+
+/*
+ * Printing should produce something you can carry to the wall: the layout and
+ * the nail positions, on paper, without the controls.
+ */
+@media print {
+  :root {
+    --bg: #fff;
+    --surface: #fff;
+    --surface-sunken: #fff;
+    --text: #000;
+    --text-muted: #444;
+    --border: #999;
+    --border-strong: #666;
+    --shadow: none;
+  }
+
+  body {
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  .sidebar,
+  .export-row,
+  .skip-link,
+  #btn-theme,
+  .app-footer {
+    display: none;
+  }
+
+  .app {
+    display: block;
+    max-width: none;
+  }
+
+  .panel,
+  .preview {
+    border: 1px solid #999;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .preview svg {
+    max-height: none;
+  }
+
+  #hanging-list {
+    break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+}
