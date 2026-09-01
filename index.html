@@ -144,14 +144,6 @@
               <span>Salon hang</span><span>Ordered grid</span>
             </div>
           </div>
-
-          <div class="seed-row">
-            <p class="seed">Seed <code id="seed">0</code></p>
-            <div class="button-row">
-              <button type="button" class="btn btn-primary" id="btn-reroll">Try another</button>
-              <button type="button" class="btn" id="btn-copy-link">Copy link</button>
-            </div>
-          </div>
         </section>
       </form>
 
@@ -159,17 +151,19 @@
         <p id="announcements" class="visually-hidden" role="status" aria-live="polite"></p>
         <p id="notices" class="notices" role="alert"></p>
         <div class="preview" id="preview" tabindex="-1"></div>
-        <p id="status" class="status" aria-live="polite"></p>
+
+        <div class="action-bar">
+          <p id="status" class="status" aria-live="polite"></p>
+          <div class="action-buttons">
+            <button type="button" class="btn btn-primary" id="btn-reroll">Try another</button>
+            <button type="button" class="btn" id="btn-copy-link">Copy link</button>
+            <span class="seed">Seed <code id="seed">0</code></span>
+          </div>
+        </div>
         <p id="print-summary" class="print-only"></p>
 
-        <div class="button-row export-row">
-          <button type="button" class="btn" id="btn-export-svg">Download SVG</button>
-          <button type="button" class="btn" id="btn-export-png">Download PNG</button>
-          <button type="button" class="btn" id="btn-print">Print</button>
-        </div>
-
-        <section class="panel" aria-labelledby="h-hanging">
-          <h2 id="h-hanging">Where to put the nails</h2>
+        <details class="panel hanging-panel" open>
+          <summary id="h-hanging">Where to put the nails</summary>
           <p class="field-note">
             Measured in centimetres from the top-left corner of the wall, in the order to hang them.
           </p>
@@ -192,7 +186,13 @@
               <tbody></tbody>
             </table>
           </div>
-        </section>
+        </details>
+
+        <div class="button-row export-row">
+          <button type="button" class="btn" id="btn-export-svg">Download SVG</button>
+          <button type="button" class="btn" id="btn-export-png">Download PNG</button>
+          <button type="button" class="btn" id="btn-print">Print</button>
+        </div>
       </div>
     </main>
 

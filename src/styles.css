@@ -402,15 +402,23 @@ input[type='range'] {
   color: var(--text-muted);
 }
 
-.seed-row {
+/* The action bar sits directly below the preview so "Try another" is always
+   visible when you are looking at the layout. On mobile this is the first
+   thing below the drawing; on desktop it is still in the preview column. */
+.action-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.action-buttons {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  justify-content: center;
+  gap: 8px;
 }
 
 .seed {
@@ -538,6 +546,32 @@ input[type='range'] {
 }
 
 .print-only {
+  display: none;
+}
+
+/* The nail table is the longest section on the page. Collapsing it keeps the
+   controls reachable on a phone without scrolling past a 7+ row table first. */
+.hanging-panel summary {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.hanging-panel summary::before {
+  content: '▸ ';
+}
+
+.hanging-panel[open] summary::before {
+  content: '▾ ';
+}
+
+/* Remove the default marker in Safari. */
+.hanging-panel summary::-webkit-details-marker {
   display: none;
 }
 
