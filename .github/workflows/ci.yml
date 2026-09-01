@@ -18,4 +18,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm run coverage
+      # Not `npm run coverage`: the layout search is CPU-bound, and v8
+      # instrumentation makes this suite roughly ten times slower for a metric
+      # that says little here -- the tests bound the engine's work explicitly.
+      - run: npm run test

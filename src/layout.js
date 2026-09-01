@@ -64,7 +64,8 @@ const ALIGN_SNAP_MAX = 1.5;
  *            bbox:object|null, coverage:number}}
  *   `notices` carries machine-readable reasons the result is not what was
  *   asked for: 'empty-inventory', 'invalid-wall', 'frames-dropped',
- *   'does-not-fit'.
+ *   'does-not-fit'. `stats` reports how much work the search did, which lets
+ *   tests bound the cost deterministically instead of timing it.
  */
 export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -97,13 +98,15 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
   let candidates = selected;
 
   const limits = { gap: spacing, wallW: wall.w, wallH: wall.h };
+  const stats = { energyEvaluations: 0, attempts: 0 };
   let best = null;
 
   // Try the chosen frames; if none of the runs can be made valid, the frames
   // genuinely do not fit, so drop the smallest and try again. Each pass removes
   // one frame, so this terminates in at most `candidates.length` passes.
   while (candidates.length > 0 && !best) {
-    best = searchLayout(candidates, wall, spacing, opts, rng, limits);
+    stats.attempts++;
+    best = searchLayout(candidates, wall, spacing, opts, rng, limits, stats);
     if (!best) candidates = candidates.slice(0, candidates.length - 1);
   }
 
@@ -129,18 +132,27 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
     notices,
     bbox: box,
     coverage: placedArea / (wall.w * wall.h),
+    stats,
   };
 }
 
 function emptyResult(total, notices) {
-  return { frames: [], placed: 0, total, notices, bbox: null, coverage: 0 };
+  return {
+    frames: [],
+    placed: 0,
+    total,
+    notices,
+    bbox: null,
+    coverage: 0,
+    stats: { energyEvaluations: 0, attempts: 0 },
+  };
 }
 
 /**
  * Runs several independent annealing attempts on one set of frames and returns
  * the best layout that survives repair, or null if none does.
  */
-function searchLayout(candidates, wall, gap, opts, rng, limits) {
+function searchLayout(candidates, wall, gap, opts, rng, limits, stats) {
   const iterations = Math.min(
     MAX_ITERATIONS,
     BASE_ITERATIONS + ITERATIONS_PER_FRAME * candidates.length
@@ -161,11 +173,12 @@ function searchLayout(candidates, wall, gap, opts, rng, limits) {
       targetAspect: envelope.aspect,
     });
 
-    anneal(frames, ctx, rng, envelope, iterations, opts);
+    anneal(frames, ctx, rng, envelope, iterations, opts, stats);
     settle(frames, limits, opts.order);
 
     if (!repairLayout(frames, limits)) continue;
 
+    stats.energyEvaluations++;
     const energy = computeEnergy(frames, ctx).total;
     if (!best || energy < best.energy) best = { frames, energy };
   }
@@ -255,9 +268,10 @@ function seedPlacement(frames, wall, gap, opts, rng) {
  * twice per iteration via JSON round-trips — tens of thousands of clones per
  * layout — which is what made large inventories lock the browser tab.
  */
-function anneal(frames, ctx, rng, envelope, iterations, opts) {
+function anneal(frames, ctx, rng, envelope, iterations, opts, stats) {
   if (frames.length < 2) return;
 
+  stats.energyEvaluations++;
   let current = computeEnergy(frames, ctx);
   let bestEnergy = current.total;
   let bestState = captureState(frames);
@@ -267,6 +281,7 @@ function anneal(frames, ctx, rng, envelope, iterations, opts) {
     const move = proposeMove(frames, rng, envelope, current.perFrame, opts);
     if (!move) continue;
 
+    stats.energyEvaluations++;
     const next = computeEnergy(frames, ctx);
     const delta = next.total - current.total;
 

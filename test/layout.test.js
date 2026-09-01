@@ -293,17 +293,14 @@ describe('generateLayout: degenerate input', () => {
 });
 
 describe('generateLayout: cost', () => {
-  it('lays out a large inventory promptly', () => {
-    // The original engine could spend hundreds of annealing runs on a dead end
-    // and lock the browser tab. This is a generous bound; it exists to catch a
-    // return to that behaviour, not to measure performance precisely.
-    const big = [
-      { w: 30, h: 40, count: 10 },
-      { w: 20, h: 30, count: 15 },
-      { w: 13, h: 18, count: 15 },
-    ];
-    const started = Date.now();
-    const result = generateLayout({
+  const big = [
+    { w: 30, h: 40, count: 10 },
+    { w: 20, h: 30, count: 15 },
+    { w: 13, h: 18, count: 15 },
+  ];
+
+  const layOutBig = () =>
+    generateLayout({
       inventory: big,
       wallW: 400,
       wallH: 300,
@@ -311,8 +308,38 @@ describe('generateLayout: cost', () => {
       seed: 1,
       options: { ...DEFAULT_OPTIONS, useAll: true },
     });
-    const elapsed = Date.now() - started;
+
+  it('does a bounded amount of work on a large inventory', () => {
+    // The original could spend hundreds of annealing runs on a dead end and
+    // lock the browser tab. This counts the work rather than timing it: a
+    // wall-clock assertion is at the mercy of the runner's speed and of
+    // coverage instrumentation, which alone makes this suite ten times slower.
+    const result = layOutBig();
     expect(result.frames.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(8000);
+    expect(result.stats.energyEvaluations).toBeLessThan(40000);
+    expect(result.stats.attempts).toBeLessThanOrEqual(3);
+  });
+
+  it('scales its effort with the frame count rather than exploding', () => {
+    const small = generateLayout({
+      inventory: [{ w: 20, h: 30, count: 6 }],
+      wallW: 400,
+      wallH: 300,
+      gap: 5,
+      seed: 1,
+      options: { ...DEFAULT_OPTIONS, useAll: true },
+    });
+    const large = layOutBig();
+    // Roughly seven times the frames must not mean orders of magnitude more
+    // work -- that superlinear blow-up is what made the original unusable.
+    expect(large.stats.energyEvaluations).toBeLessThan(small.stats.energyEvaluations * 6);
+  });
+
+  it('stays responsive in wall-clock terms too', () => {
+    // Deliberately loose: this only catches a catastrophic regression, such as
+    // a return to deep-cloning the layout on every iteration.
+    const started = Date.now();
+    layOutBig();
+    expect(Date.now() - started).toBeLessThan(60000);
   });
 });
