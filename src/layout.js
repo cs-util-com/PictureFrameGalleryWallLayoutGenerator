@@ -93,6 +93,17 @@ const SEED_DENSITY_RANGE = 0.17;
 /** How far a near-alignment may be nudged to become an exact one, in cm. */
 const ALIGN_SNAP_MAX = 1.5;
 
+/** Above this point on the Style slider, one run starts from a strict grid. */
+const GRID_SEED_MIN_ORDER = 0.6;
+
+/**
+ * Starting temperature for the run seeded from a grid.
+ *
+ * Low enough that the run refines the grid -- fixing the rotation mix, easing
+ * the silhouette -- instead of melting it back into a scatter.
+ */
+const T_GRID_START = 0.08;
+
 /**
  * Generates a layout.
  *
@@ -292,7 +303,17 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
   for (let run = 0; run < runs; run++) {
     // Each run starts from its own copy: the engine mutates frames in place.
     const frames = cloneFrames(candidates);
-    const envelope = seedPlacement(frames, wall, gap, opts, rng);
+    // Toward the ordered end of the slider, spend the first run starting from
+    // an actual grid. Annealing from a random scatter essentially never finds
+    // one -- landing every frame on a shared line within the alignment
+    // tolerance is a needle -- so the engine could score a grid well (it now
+    // does) and still never produce one. Runs are compared on energy, so a grid
+    // that turns out worse than a free arrangement simply loses.
+    let envelope = null;
+    if (run === 0 && opts.order >= GRID_SEED_MIN_ORDER)
+      envelope = seedGrid(frames, wall, gap, opts);
+    const seededGrid = envelope !== null;
+    if (!seededGrid) envelope = seedPlacement(frames, wall, gap, opts, rng);
     const ctx = createEnergyContext({
       wallW: wall.w,
       wallH: wall.h,
@@ -303,7 +324,20 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
       targetAspect: envelope.aspect,
     });
 
-    anneal(frames, ctx, rng, envelope, iterations, opts, stats);
+    // A grid seed is already a good answer, so it is refined rather than
+    // explored from. Annealing it from the full starting temperature simply
+    // scrambled it: the measured largest shared line went *down*, from 3.00
+    // frames to 2.75, because every grid was cooked back into a scatter.
+    anneal(
+      frames,
+      ctx,
+      rng,
+      envelope,
+      iterations,
+      opts,
+      stats,
+      seededGrid ? T_GRID_START : T_START
+    );
     settle(frames, limits, opts.order);
 
     if (!repairLayout(frames, limits)) continue;
@@ -325,6 +359,79 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
  *
  * @returns {{x:number, y:number, w:number, h:number, aspect:number}}
  */
+/**
+ * Seeds a strict grid — a Rasterhängung — on a uniform pitch.
+ *
+ * Every frame is centred in its own identical cell, so all the cells in a
+ * column share a vertical centre line and all those in a row share a horizontal
+ * one, whatever sizes the frames are. That is what makes a grid of mixed sizes
+ * read as a grid, and it is why the alignment score has to count centre lines.
+ *
+ * Cells are square when rotation is allowed, so the annealer can turn a frame
+ * in place — `rotateRect` preserves the centre — to satisfy the rotation mix
+ * without knocking the grid apart.
+ *
+ * @returns {object|null} The envelope, or null when no grid fits the wall, in
+ *   which case the caller falls back to the ordinary random seed.
+ */
+function seedGrid(frames, wall, gap, opts) {
+  const n = frames.length;
+  if (n === 0) return null;
+
+  let cellW = 0;
+  let cellH = 0;
+  for (const f of frames) {
+    cellW = Math.max(cellW, f.baseW, opts.allowRotation ? f.baseH : 0);
+    cellH = Math.max(cellH, f.baseH, opts.allowRotation ? f.baseW : 0);
+  }
+  cellW += gap;
+  cellH += gap;
+
+  // Choose the column count whose silhouette sits closest to the wall's shape,
+  // measured in log space so "twice as wide" and "half as wide" cost the same.
+  const wallAspect = wall.w / wall.h;
+  let cols = 0;
+  let bestScore = Infinity;
+  for (let candidate = 1; candidate <= n; candidate++) {
+    const rows = Math.ceil(n / candidate);
+    const gridW = candidate * cellW - gap;
+    const gridH = rows * cellH - gap;
+    if (gridW > wall.w || gridH > wall.h) continue;
+    const score = Math.abs(Math.log(gridW / gridH / wallAspect));
+    if (score < bestScore) {
+      bestScore = score;
+      cols = candidate;
+    }
+  }
+  if (cols === 0) return null;
+
+  const rows = Math.ceil(n / cols);
+  const gridW = cols * cellW - gap;
+  const gridH = rows * cellH - gap;
+  const originX = (wall.w - gridW) / 2;
+  const originY = (wall.h - gridH) / 2;
+
+  for (let i = 0; i < n; i++) {
+    const f = frames[i];
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    // Centre a short last row rather than leaving it hanging to the left, which
+    // reads as an accident rather than as a composition.
+    const inRow = Math.min(cols, n - row * cols);
+    const rowInset = ((cols - inRow) * cellW) / 2;
+    f.x = originX + rowInset + col * cellW + (cellW - gap - f.w) / 2;
+    f.y = originY + row * cellH + (cellH - gap - f.h) / 2;
+  }
+
+  return {
+    x: originX,
+    y: originY,
+    w: gridW,
+    h: gridH,
+    aspect: Math.max(0.1, gridW / Math.max(0.1, gridH)),
+  };
+}
+
 function seedPlacement(frames, wall, gap, opts, rng) {
   if (opts.allowRotation) {
     for (const f of frames) {
@@ -398,7 +505,7 @@ function seedPlacement(frames, wall, gap, opts, rng) {
  * twice per iteration via JSON round-trips — tens of thousands of clones per
  * layout — which is what made large inventories lock the browser tab.
  */
-function anneal(frames, ctx, rng, envelope, iterations, opts, stats) {
+function anneal(frames, ctx, rng, envelope, iterations, opts, stats, tStart = T_START) {
   if (frames.length < 2) return;
 
   stats.energyEvaluations++;
@@ -408,7 +515,7 @@ function anneal(frames, ctx, rng, envelope, iterations, opts, stats) {
   const distribution = buildMoveDistribution(frames, opts);
 
   for (let i = 0; i < iterations; i++) {
-    const temperature = T_START * Math.pow(T_END / T_START, i / iterations);
+    const temperature = tStart * Math.pow(T_END / tStart, i / iterations);
     const move = proposeMove(frames, rng, envelope, current.perFrame, opts, distribution);
     if (!move) continue;
 

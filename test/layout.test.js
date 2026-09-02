@@ -187,6 +187,66 @@ describe('generateLayout: options', () => {
     expect(measure(1)).toBeGreaterThan(measure(0) * 1.5);
   });
 
+  it('builds real structure at the ordered end, not just more aligned pairs', () => {
+    // The energy function can score a grid correctly and the search still never
+    // find one: landing every frame on a shared line within the tolerance is a
+    // needle for a random-scatter seed. This measures the same consolidation
+    // the energy rewards -- candidate lines clustered, each cluster's distinct
+    // frame count squared -- so it catches the search failing even when the
+    // cost function is right.
+    const TOLERANCE = 1.5;
+    const consolidation = (frames) => {
+      const n = frames.length;
+      if (n < 2) return 0;
+      let total = 0;
+      for (const axis of ['x', 'y']) {
+        const size = axis === 'x' ? 'w' : 'h';
+        const coords = [];
+        frames.forEach((f, i) => {
+          coords.push([f[axis], i], [f[axis] + f[size] / 2, i], [f[axis] + f[size], i]);
+        });
+        coords.sort((a, b) => a[0] - b[0]);
+        let start = 0;
+        while (start < coords.length) {
+          const anchor = coords[start][0];
+          const members = new Set();
+          let end = start;
+          while (end < coords.length && coords[end][0] - anchor <= TOLERANCE) {
+            members.add(coords[end][1]);
+            end++;
+          }
+          if (members.size > 1) total += (members.size - 1) ** 2;
+          start = end;
+        }
+      }
+      return total / (2 * (n - 1) ** 2);
+    };
+
+    const measure = (order) => {
+      let sum = 0;
+      for (let seed = 1; seed <= 12; seed++) {
+        const { frames } = generateLayout({
+          inventory: [
+            { w: 20, h: 30, count: 3 },
+            { w: 13, h: 18, count: 3 },
+            { w: 10, h: 15, count: 3 },
+          ],
+          wallW: 250,
+          wallH: 250,
+          gap: 7,
+          seed,
+          options: { ...DEFAULT_OPTIONS, useAll: true, preferOdd: false, order },
+        });
+        sum += consolidation(frames);
+      }
+      return sum / 12;
+    };
+
+    // Without a grid seed this sat at 0.24; the salon end is around 0.07.
+    expect(measure(1)).toBeGreaterThan(0.3);
+    expect(measure(1)).toBeGreaterThan(measure(0) * 3);
+  });
+
   it('accepts both ends of the order slider', () => {
     for (const order of [0, 0.5, 1]) {
       const result = run({ options: { ...DEFAULT_OPTIONS, order } });
