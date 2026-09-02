@@ -115,6 +115,28 @@ describe('initial render', () => {
     expect(rows.length).toBe($('#preview').querySelectorAll('rect.frame').length);
   });
 
+  it('warns that a zero hook drop means nailing at the frame top', () => {
+    // The default is 0, which silently instructs a nail at the exact top edge.
+    expect($('#hanging-caution').textContent).toMatch(/wire or hook 5-10 cm below/);
+  });
+
+  it('clears the warning once a real hook drop is entered', () => {
+    $('#hanger-drop').value = '6';
+    fire($('#hanger-drop'));
+    settle();
+    expect($('#hanging-caution').textContent).toBe('');
+  });
+
+  it('questions a hook drop that is taller than the smallest frame', () => {
+    // 40 cm is a plausible mis-keying of 4.0 cm entered in millimetres, and
+    // the field steps in half-centimetres, which invites exactly that.
+    $('#hanger-drop').value = '40';
+    fire($('#hanger-drop'));
+    settle();
+    expect($('#hanging-caution').textContent).toMatch(/taller than your smallest frame/);
+    expect($('#hanging-caution').textContent).toMatch(/Did you mean 4 cm\?/);
+  });
+
   it('states the group size and the line to mark before any nail goes in', () => {
     const setup = $('#hanging-setup').textContent;
     expect(setup).toMatch(/The whole group is [\d.]+ × [\d.]+ cm/);

@@ -83,7 +83,7 @@ export function createApp({ document: doc, window: win, storage }) {
     }, INPUT_DEBOUNCE_MS);
   }
 
-  function regenerate() {
+  function regenerate({ history = 'replace' } = {}) {
     // Cancel any pending debounce: without this, rerolling during an unsettled
     // edit runs the most expensive operation in the app a second time for an
     // identical result.
@@ -101,13 +101,15 @@ export function createApp({ document: doc, window: win, storage }) {
       centreHeight: state.centreHeight,
     });
     renderOutput();
-    persist();
+    persist(history);
   }
 
-  function persist() {
+  function persist(history = 'replace') {
     const query = encodeState(state);
     try {
-      win.history.replaceState({}, '', `${win.location.pathname}?${query}`);
+      const url = `${win.location.pathname}?${query}`;
+      if (history === 'push') win.history.pushState({}, '', url);
+      else win.history.replaceState({}, '', url);
     } catch {
       // Safari throttles replaceState and throws once the limit is hit, which a
       // sustained slider drag can reach. The URL falling behind is not worth
@@ -189,6 +191,32 @@ export function createApp({ document: doc, window: win, storage }) {
         return tr;
       })
     );
+
+    // With no hook drop the table says to nail at the frame's exact top edge.
+    // Almost every framed picture hangs from a wire or D-ring 5-10 cm down, so
+    // each frame would end up higher than drawn -- and by a different amount
+    // each, which pulls apart the very composition the engine solved for. The
+    // field looks optional and the plan looks finished, so say so plainly.
+    const caution = $('#hanging-caution');
+    if (caution) {
+      const shortest = layout.frames.reduce((min, f) => Math.min(min, f.h), Infinity);
+      if (!state.hangerDrop) {
+        caution.textContent =
+          'Assuming the hanging point is level with the top of the frame. Most frames hang ' +
+          'from a wire or hook 5-10 cm below it — measure yours with the wire pulled taut and ' +
+          'enter it above, or every frame will hang high.';
+      } else if (Number.isFinite(shortest) && state.hangerDrop > shortest) {
+        // Clamping a mis-keyed drop produced a confident wrong number at the
+        // frame's bottom edge. The field steps in half-centimetres, so typing
+        // millimetres is an easy mistake to make.
+        caution.textContent =
+          `A hook drop of ${state.hangerDrop} cm is taller than your smallest frame ` +
+          `(${Math.round(shortest)} cm), so it has been capped. Did you mean ` +
+          `${state.hangerDrop / 10} cm?`;
+      } else {
+        caution.textContent = '';
+      }
+    }
 
     // `block` was computed and discarded. It is what you need before the first
     // nail: how big the whole group is, and the one line to mark on the wall.
@@ -430,7 +458,10 @@ export function createApp({ document: doc, window: win, storage }) {
       if (next === state.seed) next = (next + 1) % MAX_SEED;
       state.seed = next;
       $('#seed').textContent = String(state.seed);
-      regenerate();
+      // A reroll is a discrete choice, so it gets a history entry and Back
+      // returns the layout you just discarded. Everything else keeps using
+      // replaceState -- dragging a slider must not fill the history stack.
+      regenerate({ history: 'push' });
     });
 
     on($('#btn-copy-link'), 'click', async () => {
