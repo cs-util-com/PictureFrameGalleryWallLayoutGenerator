@@ -96,7 +96,7 @@ const emptyTerms = () => ({
   dispersion: 0,
   rotationMix: 0,
   alignment: 0,
-  silhouette: 35,
+  silhouette: 0,
 });
 
 /**
@@ -224,20 +224,24 @@ export function computeEnergy(frames, ctx) {
   // other end of the slider: a Rasterhängung is a rectangle by definition, and
   // asking for a grid and an oval at once gets neither. The rounded silhouette
   // belongs to the salon end, where there is no grid to contradict.
-  let outside = 0;
-  for (const f of frames) {
-    let reach = 0;
-    for (let corner = 0; corner < 4; corner++) {
-      const px = f.x + (corner & 1 ? f.w : 0);
-      const py = f.y + (corner & 2 ? f.h : 0);
-      const rx = (px - centerX) / halfWidth;
-      const ry = (py - centerY) / halfHeight;
-      const r = Math.sqrt(rx * rx + ry * ry);
-      if (r > reach) reach = r;
+  //
+  // Skipped outright at the ordered end, where the multiplier is exactly zero
+  // and the whole loop would be thrown away. `emptyTerms` already left the
+  // field at 0, so this is the same number for less work.
+  if (ctx.order < 1) {
+    let outside = 0;
+    for (const f of frames) {
+      // The furthest corner is the one furthest out on each axis
+      // independently, so the four candidates collapse to one: sqrt and
+      // addition are both monotone in each argument, which makes this the same
+      // double, not merely the same value.
+      const rx = Math.max(Math.abs(f.x - centerX), Math.abs(f.x + f.w - centerX)) / halfWidth;
+      const ry = Math.max(Math.abs(f.y - centerY), Math.abs(f.y + f.h - centerY)) / halfHeight;
+      const reach = Math.sqrt(rx * rx + ry * ry);
+      outside += Math.max(0, reach - 1) * (f.area / totalArea);
     }
-    outside += Math.max(0, reach - 1) * (f.area / totalArea);
+    terms.silhouette = outside * WEIGHTS.silhouette * (1 - ctx.order);
   }
-  terms.silhouette = outside * WEIGHTS.silhouette * (1 - ctx.order);
 
   // --- Aspect: keep the silhouette near the shape the run is aiming for.
   // Measured in log space so "twice as wide" and "half as wide" cost the same.
@@ -248,7 +252,10 @@ export function computeEnergy(frames, ctx) {
   // them; an ordered hang is allowed to have them, so the penalty fades out as
   // `order` rises. (The original engine charged for rows even at maximum order,
   // which fought the very structure the slider was asking for.)
-  terms.rows = rowPenalty(frames) * (1 - ctx.order);
+  // Skipped outright at the ordered end, where the multiplier is exactly zero
+  // and the three sorts inside rowPenalty would be thrown away. `emptyTerms`
+  // already left the field at 0, so this is the same number for less work.
+  if (ctx.order < 1) terms.rows = rowPenalty(frames) * (1 - ctx.order);
 
   // --- Dispersion: sizes should be mixed across the wall rather than sorted
   // into a big-frames corner and a small-frames corner.
@@ -269,9 +276,16 @@ export function computeEnergy(frames, ctx) {
   //
   // Measured by how far the frames commit to *shared lines*, not by how many
   // pairs happen to agree. See `alignmentScore`.
+  //
+  // Worth guarding rather than multiplying out: `order` is exactly 0.5 at the
+  // middle of the slider -- which is where the app starts -- and the bias is
+  // then exactly zero, so the whole clustering pass would be computed and
+  // discarded on the setting most users never move.
   const orderBias = 2 * ctx.order - 1;
-  const alignment = -alignmentScore(frames) * WEIGHTS.alignment * orderBias;
-  terms.alignment = alignment === 0 ? 0 : alignment;
+  if (orderBias !== 0) {
+    const alignment = -alignmentScore(frames) * WEIGHTS.alignment * orderBias;
+    terms.alignment = alignment === 0 ? 0 : alignment;
+  }
 
   // --- Isolation, per frame only. A frame sitting far from its nearest
   // neighbour is the one worth moving, whether or not it breaks any rule.
@@ -285,8 +299,23 @@ export function computeEnergy(frames, ctx) {
     }
   }
 
-  let total = 0;
-  for (const value of Object.values(terms)) total += value;
+  // Summed field by field, in the order `emptyTerms` declares them, rather
+  // than through `Object.values` -- which allocates a twelve-element array and
+  // runs a generic iterator on every one of millions of calls. Keep this list
+  // in step with `emptyTerms`.
+  const total =
+    terms.overlap +
+    terms.gap +
+    terms.bounds +
+    terms.balanceX +
+    terms.balanceY +
+    terms.voids +
+    terms.aspect +
+    terms.rows +
+    terms.dispersion +
+    terms.rotationMix +
+    terms.alignment +
+    terms.silhouette;
   return { total, perFrame, terms };
 }
 
@@ -377,26 +406,72 @@ function alignmentScore(frames) {
  */
 const PACK_SCALE = 128;
 const PACK_QUANTUM = 100;
+const PACK_SHIFT = 7; // PACK_SCALE === 1 << PACK_SHIFT
 const pack = (value, index) => Math.round(value * PACK_QUANTUM) * PACK_SCALE + index;
-const unpackValue = (key) => Math.floor(key / PACK_SCALE) / PACK_QUANTUM;
+// `key >> PACK_SHIFT` is exactly Math.floor(key / PACK_SCALE) on an int32,
+// negatives included, without a division.
+const unpackValue = (key) => (key >> PACK_SHIFT) / PACK_QUANTUM;
 // Floored modulo, not `%`. Frames sit at negative coordinates while the
 // annealer works, and JS `%` truncates toward zero -- `-127999 % 128` is -127,
 // not 1 -- so a negative key produced a negative index. Indexing an Int32Array
 // with that reads undefined and drops the write, which silently disabled the
 // distinct-frame dedupe and made the score depend on where the group sat.
-const unpackIndex = (key) => key - Math.floor(key / PACK_SCALE) * PACK_SCALE;
+// A bitwise AND is the floored modulo for a power-of-two scale, on both signs.
+const unpackIndex = (key) => key & (PACK_SCALE - 1);
 
 // Sized exactly, so `sort()` needs no per-call subarray view. The frame count
 // is constant for a whole annealing run, so this allocates once per run.
+/**
+ * Reused buffers for the two terms that would otherwise allocate on every call.
+ *
+ * `computeEnergy` runs millions of times per layout, so a handful of short-lived
+ * arrays per call is real GC pressure. These are module-level and therefore only
+ * safe because scoring is synchronous and never re-entrant: nothing yields
+ * between filling a buffer and finishing with it.
+ *
+ * The run buffer is sized *exactly*, because `TypedArray#sort` sorts the whole
+ * buffer rather than a prefix.
+ */
+let runsBuffer = new Float64Array(0);
+const scratchRuns = (size) => {
+  if (runsBuffer.length !== size) runsBuffer = new Float64Array(size);
+  return runsBuffer;
+};
+
+let dispersionBuffers = {
+  cx: new Float64Array(0),
+  cy: new Float64Array(0),
+  deviation: new Float64Array(0),
+};
+const scratchDispersion = (size) => {
+  if (dispersionBuffers.cx.length !== size) {
+    dispersionBuffers = {
+      cx: new Float64Array(size),
+      cy: new Float64Array(size),
+      deviation: new Float64Array(size),
+    };
+  }
+  return dispersionBuffers;
+};
+
 // An index of PACK_SCALE or more would carry into the coordinate bits and
 // silently corrupt every score. Fail loudly at load instead.
 if (MAX_FRAMES >= PACK_SCALE) {
   throw new Error(`alignmentScore packing holds ${PACK_SCALE - 1} frames, not ${MAX_FRAMES}`);
 }
 
-let coordBuffer = new Float64Array(0);
+// The packed keys live in an Int32Array, which bounds how far a coordinate may
+// stray: (2^31 - 1) / (PACK_QUANTUM * PACK_SCALE) is about 1.6 million cm,
+// against a 2000 cm wall and observed excursions under 1400 cm. Enormous
+// headroom, but stated so that widening the wall limit trips over it.
+const MAX_PACKABLE_CM = 2147483647 / (PACK_QUANTUM * PACK_SCALE);
+if (MAX_PACKABLE_CM < 4 * 2000) {
+  throw new Error(`alignmentScore packing reaches only ${MAX_PACKABLE_CM} cm`);
+}
+
+let coordBuffer = new Int32Array(0);
 const scratchCoords = (size) => {
-  if (coordBuffer.length !== size) coordBuffer = new Float64Array(size);
+  if (coordBuffer.length !== size) coordBuffer = new Int32Array(size);
   return coordBuffer;
 };
 
@@ -413,18 +488,36 @@ const scratchSeen = (size) => {
  * ones.
  */
 function rowPenalty(frames) {
-  const lines = [
-    frames.map((f) => f.y + f.h / 2),
-    frames.map((f) => f.x + f.w / 2),
-    frames.map((f) => f.y),
-  ];
+  const n = frames.length;
+  // Three candidate lines per frame, each measured into a reused, exactly
+  // sized buffer: `TypedArray#sort` sorts the whole buffer, so the length has
+  // to match, and it sorts numerically with no comparator callback, which is
+  // several times faster than `slice().sort((a, b) => a - b)`.
+  const values = scratchRuns(n);
+
   let penalty = 0;
-  for (const values of lines) {
-    for (const run of longRuns(values)) {
-      penalty += (run - MAX_FREE_RUN) ** 2;
+  for (let line = 0; line < 3; line++) {
+    for (let i = 0; i < n; i++) {
+      const f = frames[i];
+      values[i] = line === 0 ? f.y + f.h / 2 : line === 1 ? f.x + f.w / 2 : f.y;
     }
+    values.sort();
+
+    // A run is a stretch of consecutive sorted values each within
+    // ROW_TOLERANCE of the last. Counted in place rather than collected into
+    // an array, because only the lengths matter.
+    let length = 1;
+    for (let i = 1; i < n; i++) {
+      if (values[i] - values[i - 1] <= ROW_TOLERANCE) {
+        length++;
+      } else {
+        if (length > MAX_FREE_RUN) penalty += (length - MAX_FREE_RUN) ** 2;
+        length = 1;
+      }
+    }
+    if (length > MAX_FREE_RUN) penalty += (length - MAX_FREE_RUN) ** 2;
   }
-  return (penalty / frames.length) * WEIGHTS.rows;
+  return (penalty / n) * WEIGHTS.rows;
 }
 
 /**
@@ -435,21 +528,6 @@ function rowPenalty(frames) {
  * the cluster: three frames at 0, 2 and 4 cm all sit on one visual line even
  * though 4 is more than ROW_TOLERANCE from 0.
  */
-function longRuns(values) {
-  const sorted = values.slice().sort((a, b) => a - b);
-  const runs = [];
-  let length = 1;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] - sorted[i - 1] <= ROW_TOLERANCE) {
-      length++;
-    } else {
-      if (length > MAX_FREE_RUN) runs.push(length);
-      length = 1;
-    }
-  }
-  if (length > MAX_FREE_RUN) runs.push(length);
-  return runs;
-}
 
 /**
  * Measures how strongly similar sizes clump together, as Moran's I over frame
@@ -471,16 +549,23 @@ function longRuns(values) {
  */
 function dispersionPenalty(frames) {
   const n = frames.length;
-  const cx = frames.map((f) => f.x + f.w / 2);
-  const cy = frames.map((f) => f.y + f.h / 2);
+  const { cx, cy, deviation } = scratchDispersion(n);
+  for (let i = 0; i < n; i++) {
+    const f = frames[i];
+    cx[i] = f.x + f.w / 2;
+    cy[i] = f.y + f.h / 2;
+  }
 
   let mean = 0;
   for (const f of frames) mean += f.area;
   mean /= n;
 
-  const deviation = frames.map((f) => f.area - mean);
   let variance = 0;
-  for (const d of deviation) variance += d * d;
+  for (let i = 0; i < n; i++) {
+    const d = frames[i].area - mean;
+    deviation[i] = d;
+    variance += d * d;
+  }
   // Every frame the same size: there is nothing to mix.
   if (variance <= 0) return 0;
 
