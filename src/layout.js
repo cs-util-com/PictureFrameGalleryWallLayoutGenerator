@@ -632,39 +632,49 @@ function settle(frames, limits, order) {
   const tolerance = ALIGN_SNAP_MAX * order;
   if (tolerance <= 0.1 || frames.length < 2) return;
 
-  for (let i = 0; i < frames.length; i++) {
-    for (let j = i + 1; j < frames.length; j++) {
-      const a = frames[i];
-      const b = frames[j];
+  for (const axis of ['x', 'y']) {
+    const size = axis === 'x' ? 'w' : 'h';
 
-      // Every way two frames can share an edge line: near edges, far edges, and
-      // each frame's near edge against the other's far edge.
-      const pairings = [
-        ['x', 0, 0],
-        ['x', a.w, b.w],
-        ['x', 0, b.w],
-        ['x', a.w, 0],
-        ['y', 0, 0],
-        ['y', a.h, b.h],
-        ['y', 0, b.h],
-        ['y', a.h, 0],
-      ];
+    // Every line a frame could be snapped onto: near edge, centre, far edge.
+    // The centre matters as much as the edges — mixed-size frames hung on one
+    // centre line share no edge at all.
+    const coords = [];
+    frames.forEach((f, i) => {
+      coords.push({ at: f[axis], i, offset: 0 });
+      coords.push({ at: f[axis] + f[size] / 2, i, offset: f[size] / 2 });
+      coords.push({ at: f[axis] + f[size], i, offset: f[size] });
+    });
+    coords.sort((a, b) => a.at - b.at || a.i - b.i);
 
-      for (const [axis, offsetA, offsetB] of pairings) {
-        const edgeA = a[axis] + offsetA;
-        const edgeB = b[axis] + offsetB;
-        if (Math.abs(edgeA - edgeB) > tolerance) continue;
+    let start = 0;
+    while (start < coords.length) {
+      const anchor = coords[start].at;
+      let end = start;
+      while (end < coords.length && coords[end].at - anchor <= tolerance) end++;
+      const cluster = coords.slice(start, end);
+      start = end;
 
-        const savedA = a[axis];
-        const savedB = b[axis];
-        const target = (edgeA + edgeB) / 2;
-        a[axis] = target - offsetA;
-        b[axis] = target - offsetB;
+      // Snap the whole cluster onto one consensus line rather than snapping
+      // each pair to its own midpoint. Pairwise midpoints moved *both* frames
+      // every time, so a frame already sitting on the line got walked off it by
+      // its neighbours: three frames starting at 0.0, 1.0 and 2.0 settled at
+      // 1.25, 0.875 and 0.875 — two on a line where all three had been within
+      // one band.
+      if (new Set(cluster.map((c) => c.i)).size < 2) continue;
+      const target = cluster.reduce((sum, c) => sum + c.at, 0) / cluster.length;
 
-        if (!pairIsSafe(frames, i, j, limits)) {
-          a[axis] = savedA;
-          b[axis] = savedB;
-        }
+      const moved = new Set();
+      for (const c of cluster) {
+        // One snap per frame per cluster: a small frame can offer two of its
+        // own lines to the same band, and the second would undo the first.
+        if (moved.has(c.i)) continue;
+        moved.add(c.i);
+        const f = frames[c.i];
+        const saved = f[axis];
+        f[axis] = target - c.offset;
+        // Each frame is accepted or rejected on its own, so one blocked frame
+        // no longer costs the rest of its row their alignment.
+        if (!pairIsSafe(frames, c.i, c.i, limits)) f[axis] = saved;
       }
     }
   }

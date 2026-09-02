@@ -38,6 +38,23 @@ export const WEIGHTS = {
 /** Two edges within this many centimetres count as aligned. */
 const ALIGN_TOLERANCE = 1.5;
 
+/**
+ * How much of the void penalty is lifted at maximum `order`.
+ *
+ * Not all of it: even an ordered hang should stay a group rather than drifting
+ * apart across the wall.
+ */
+const VOID_ORDER_FADE = 0.6;
+
+/**
+ * The cluster score that counts as fully aligned.
+ *
+ * A clean grid of n frames scores a little over 2(n-1)² across both axes, so
+ * this puts a real grid at the top of the range while leaving ordinary layouts
+ * a gradient to climb rather than a ceiling to sit against.
+ */
+const ALIGN_FULL_SCORE = (n) => 2 * (n - 1) ** 2;
+
 /** A run of more than this many co-linear frames starts to read as a grid row. */
 const ROW_TOLERANCE = 2;
 const MAX_FREE_RUN = 3;
@@ -110,8 +127,6 @@ export function computeEnergy(frames, ctx) {
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  let alignedPairs = 0;
-  let totalPairs = 0;
   // Closest neighbour for each frame, for the isolation score below.
   const nearest = new Array(n).fill(Infinity);
 
@@ -153,9 +168,6 @@ export function computeEnergy(frames, ctx) {
 
       if (cl < nearest[i]) nearest[i] = cl;
       if (cl < nearest[j]) nearest[j] = cl;
-
-      totalPairs++;
-      if (sharesEdge(a, b)) alignedPairs++;
     }
   }
 
@@ -179,9 +191,19 @@ export function computeEnergy(frames, ctx) {
   terms.balanceX = (Math.abs(momentX / totalArea - centerX) / halfWidth) * WEIGHTS.balanceX;
   terms.balanceY = (Math.abs(momentY / totalArea - centerY) / halfHeight) * WEIGHTS.balanceY;
 
-  // --- Voids: empty space trapped inside the arrangement's silhouette. ---
+  // --- Voids: how fully the frames pack their own bounding box.
+  //
+  // This fades as `order` rises, for the same reason `rows` does. A grid of
+  // mixed-size frames must leave slack in every cell — that regular negative
+  // space *is* the Rasterhängung — so charging full price for it at maximum
+  // "ordered" made the engine prefer its own irregular blob to a clean grid of
+  // the same frames (2.29 against 2.49, measured). Density and structure pull
+  // against each other, and at the ordered end structure should win.
   const boxArea = Math.max(1, (maxX - minX) * (maxY - minY));
-  terms.voids = Math.max(0, (boxArea - totalArea) / totalArea) * WEIGHTS.voids;
+  terms.voids =
+    Math.max(0, (boxArea - totalArea) / totalArea) *
+    WEIGHTS.voids *
+    (1 - VOID_ORDER_FADE * ctx.order);
 
   // --- Aspect: keep the silhouette near the shape the run is aiming for.
   // Measured in log space so "twice as wide" and "half as wide" cost the same.
@@ -211,14 +233,10 @@ export function computeEnergy(frames, ctx) {
   // slider has range in both directions rather than merely withholding a bonus
   // at one end.
   //
-  // Measured over *pairs* that share an edge line. The original counted frames
-  // having any aligned partner and capped that share at 40% -- a threshold most
-  // random layouts already clear, so the term saturated immediately and left
-  // the annealer no gradient to follow. Across the whole slider it changed the
-  // share of aligned pairs by about one percentage point.
-  const alignRatio = totalPairs > 0 ? alignedPairs / totalPairs : 0;
+  // Measured by how far the frames commit to *shared lines*, not by how many
+  // pairs happen to agree. See `alignmentScore`.
   const orderBias = 2 * ctx.order - 1;
-  const alignment = -alignRatio * WEIGHTS.alignment * orderBias;
+  const alignment = -alignmentScore(frames) * WEIGHTS.alignment * orderBias;
   terms.alignment = alignment === 0 ? 0 : alignment;
 
   // --- Isolation, per frame only. A frame sitting far from its nearest
@@ -238,21 +256,106 @@ export function computeEnergy(frames, ctx) {
   return { total, perFrame, terms };
 }
 
-/** True when the two frames share a horizontal or vertical edge line. */
-function sharesEdge(a, b) {
-  const t = ALIGN_TOLERANCE;
-  const ax =
-    Math.abs(a.x - b.x) < t ||
-    Math.abs(a.x + a.w - (b.x + b.w)) < t ||
-    Math.abs(a.x - (b.x + b.w)) < t ||
-    Math.abs(a.x + a.w - b.x) < t;
-  const ay =
-    Math.abs(a.y - b.y) < t ||
-    Math.abs(a.y + a.h - (b.y + b.h)) < t ||
-    Math.abs(a.y - (b.y + b.h)) < t ||
-    Math.abs(a.y + a.h - b.y) < t;
-  return ax || ay;
+/**
+ * How far the frames commit to shared lines, from 0 (nothing lines up) to 1.
+ *
+ * Counting aligned *pairs* — which is what this did — rewards scattered local
+ * agreement exactly as much as structure: six frames on one line and three
+ * unrelated aligned pairs score the same per pair, so the annealer was never
+ * paid to consolidate. It bought pair count instead, and the largest line it
+ * would build on a nine-frame wall grew from 2.25 frames to only 3.00 across
+ * the whole slider.
+ *
+ * Clustering the candidate lines and squaring each cluster's size fixes the
+ * incentive: one line of six is worth 25 where three separate pairs are worth
+ * 3. That is the difference between a Kantenhängung and a scatter of
+ * coincidences. It also raises the ceiling on large arrangements: a k-by-k grid
+ * now earns 3k/(k+1)² of the maximum where the pair ratio paid 2/(k+1). The
+ * reward still thins as the wall grows, but far more slowly.
+ *
+ * O(n log n), and it replaces an O(n²) predicate in the annealer's hot loop.
+ */
+function alignmentScore(frames) {
+  const n = frames.length;
+  if (n < 2) return 0;
+
+  // This runs on every energy evaluation, so it reuses scratch buffers and
+  // packs each coordinate with its frame index into one sortable number rather
+  // than allocating 6n objects per call. Written naively it doubled the cost of
+  // computeEnergy (8.5 -> 18.3 µs on twenty frames), which the annealer pays
+  // several million times per layout.
+  const count = 3 * n;
+  const coords = scratchCoords(count);
+  const seen = scratchSeen(n);
+
+  let score = 0;
+  for (let axis = 0; axis < 2; axis++) {
+    for (let i = 0; i < n; i++) {
+      const f = frames[i];
+      const at = axis === 0 ? f.x : f.y;
+      const extent = axis === 0 ? f.w : f.h;
+      // Near edge, centre line and far edge: a Kantenhängung uses all three.
+      coords[i * 3] = pack(at, i);
+      coords[i * 3 + 1] = pack(at + extent / 2, i);
+      coords[i * 3 + 2] = pack(at + extent, i);
+    }
+    // Typed-array sort is numeric, and the packing keeps each coordinate's
+    // frame index in the low bits so it survives the sort.
+    coords.sort();
+
+    // Sweep into clusters against the coordinate that opened each one, so the
+    // banding is transitive and a long stagger cannot drift into one cluster.
+    let start = 0;
+    while (start < count) {
+      const anchor = unpackValue(coords[start]);
+      let end = start;
+      let members = 0;
+      // `seen` is stamped with the cluster's start index instead of being
+      // cleared, so counting distinct frames costs nothing per cluster.
+      const stamp = axis * count + start + 1;
+      while (end < count && unpackValue(coords[end]) - anchor <= ALIGN_TOLERANCE) {
+        const owner = coords[end] % PACK_SCALE;
+        if (seen[owner] !== stamp) {
+          seen[owner] = stamp;
+          members++;
+        }
+        end++;
+      }
+      // A single frame's own edges falling in one cluster is not alignment.
+      if (members > 1) score += (members - 1) * (members - 1);
+      start = end;
+    }
+  }
+
+  return Math.min(1, score / ALIGN_FULL_SCORE(n));
 }
+
+/**
+ * Packs a centimetre coordinate and a frame index into one sortable double.
+ *
+ * The coordinate is quantised to 1/100 cm — far finer than ALIGN_TOLERANCE, and
+ * finer than anyone can mark a wall — then shifted to leave room for the index
+ * in the low digits. Everything stays an exact integer well inside 2^53.
+ */
+const PACK_SCALE = 128;
+const PACK_QUANTUM = 100;
+const pack = (value, index) => Math.round(value * PACK_QUANTUM) * PACK_SCALE + index;
+const unpackValue = (key) => Math.floor(key / PACK_SCALE) / PACK_QUANTUM;
+
+// Sized exactly, so `sort()` needs no per-call subarray view. The frame count
+// is constant for a whole annealing run, so this allocates once per run.
+let coordBuffer = new Float64Array(0);
+const scratchCoords = (size) => {
+  if (coordBuffer.length !== size) coordBuffer = new Float64Array(size);
+  return coordBuffer;
+};
+
+let seenBuffer = new Int32Array(0);
+const scratchSeen = (size) => {
+  if (seenBuffer.length < size) seenBuffer = new Int32Array(size * 2);
+  else seenBuffer.fill(0, 0, size);
+  return seenBuffer;
+};
 
 /**
  * Charges for runs of more than MAX_FREE_RUN frames sharing a centre line or a

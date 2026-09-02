@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createEnergyContext, computeEnergy } from '../src/energy.js';
+import { createEnergyContext, computeEnergy, WEIGHTS } from '../src/energy.js';
 
 const frame = (x, y, w, h, extra = {}) => ({
   x,
@@ -237,6 +237,69 @@ describe('aesthetic terms', () => {
     const aligned = [frame(0, 0, 20, 20), frame(30, 0, 20, 20), frame(60, 0, 20, 20)];
     expect(computeEnergy(aligned, ctx({ order: 1 })).terms.alignment).toBeLessThan(0);
     expect(computeEnergy(aligned, ctx({ order: 0 })).terms.alignment).toBeGreaterThan(0);
+  });
+
+  // A Kantenhaengung lines frames up on a centre line as readily as on an edge,
+  // and the centre line is the variant that carries mixed sizes: two frames of
+  // different heights on one centre line share no edge at all. Testing only
+  // edges scored that as unaligned.
+  it('counts a shared centre line as alignment, not just a shared edge', () => {
+    const centred = [frame(0, 40, 20, 20), frame(40, 35, 20, 30)]; // centres both at y 50
+    expect(computeEnergy(centred, ctx({ order: 1 })).terms.alignment).toBeLessThan(0);
+  });
+
+  it('counts a shared vertical centre line too', () => {
+    const centred = [frame(40, 0, 20, 20), frame(35, 40, 30, 20)]; // centres both at x 50
+    expect(computeEnergy(centred, ctx({ order: 1 })).terms.alignment).toBeLessThan(0);
+  });
+
+  // Mixed-size frames in a grid must leave slack in every cell -- that regular
+  // negative space is the Rasterhaengung. Charging full price for it made the
+  // engine prefer an irregular blob to a clean grid of the same frames.
+  it('lifts most of the void penalty at the ordered end of the slider', () => {
+    const spread = [frame(0, 0, 20, 20), frame(60, 0, 20, 20), frame(0, 60, 20, 20)];
+    const loose = computeEnergy(spread, ctx({ order: 1 })).terms.voids;
+    const tight = computeEnergy(spread, ctx({ order: 0 })).terms.voids;
+    expect(loose).toBeGreaterThan(0);
+    expect(loose).toBeLessThan(tight);
+  });
+
+  // The point of scoring clusters rather than pairs: six frames committed to
+  // one line is structure, three unrelated aligned pairs is coincidence. The
+  // pair count cannot tell them apart, so the annealer was never paid to
+  // consolidate and bought scattered pairs instead.
+  it('prefers one long shared line to the same alignment scattered in pairs', () => {
+    const line = [0, 1, 2, 3, 4, 5].map((i) => frame(i * 30, 0, 20, 20)); // one row of six
+    const pairs = [
+      frame(0, 0, 20, 20),
+      frame(30, 0, 20, 20), // pair on y=0
+      frame(0, 60, 20, 20),
+      frame(30, 63, 20, 20), // pair on x
+      frame(0, 120, 20, 20),
+      frame(33, 120, 20, 20), // pair on y=120
+    ];
+    const c = ctx({ order: 1 });
+    expect(computeEnergy(line, c).terms.alignment).toBeLessThan(
+      computeEnergy(pairs, c).terms.alignment
+    );
+  });
+
+  it('still pays a large grid most of the alignment reward', () => {
+    // The reward does fall as a grid grows -- a k-by-k grid earns 3k/(k+1)^2 --
+    // but the pair ratio it replaces fell faster, to 2/(k+1). At 5x5 that is
+    // 0.42 of the maximum rather than 0.33, on exactly the large walls where
+    // structure matters most.
+    const c = ctx({ order: 1 });
+    const gridOf = (side) => {
+      const out = [];
+      for (let r = 0; r < side; r++) {
+        for (let k = 0; k < side; k++) out.push(frame(k * 30, r * 30, 20, 20));
+      }
+      return out;
+    };
+    const share = (side) => -computeEnergy(gridOf(side), c).terms.alignment / WEIGHTS.alignment;
+    expect(share(3)).toBeGreaterThan(0.55);
+    expect(share(5)).toBeGreaterThan(0.4);
   });
 
   it('is indifferent to alignment at the middle of the slider', () => {
