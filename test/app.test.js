@@ -102,7 +102,7 @@ describe('initial render', () => {
 
   it('fills the controls from the current state', () => {
     expect($('#wall-width').value).toBe('300');
-    expect($('#wall-height').value).toBe('200');
+    expect($('#wall-height').value).toBe('250');
     expect($('#inventory-list').querySelectorAll('.frame-row').length).toBe(3);
   });
 
@@ -151,7 +151,7 @@ describe('reacting to input', () => {
     $('#wall-width').value = '400';
     fire($('#wall-width'));
     settle();
-    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 400 200');
+    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 400 250');
   });
 
   it('redraws when an option is toggled', () => {
@@ -170,7 +170,7 @@ describe('reacting to input', () => {
       fire(field);
     }
     settle();
-    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 250 200');
+    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 250 250');
   });
 
   it('adds and removes inventory rows', () => {
@@ -485,7 +485,7 @@ describe('resilience', () => {
     $('#wall-width').value = '321';
     fire($('#wall-width'));
     expect(() => settle()).not.toThrow();
-    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 321 200');
+    expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 321 250');
   });
 
   it('stops adding rows at the supported maximum', () => {

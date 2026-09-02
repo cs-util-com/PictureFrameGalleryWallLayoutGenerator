@@ -39,7 +39,9 @@ export const DEFAULT_STATE = Object.freeze({
     { w: 10, h: 15, count: 4 },
   ],
   wallW: 300,
-  wallH: 200,
+  // Floor to ceiling, not just the patch of wall being decorated: the eye-level
+  // anchor is measured up from the floor, so this has to be the whole height.
+  wallH: 250,
   gap: 7,
   /** How far below the frame's top edge its hook or taut wire sits, in cm. */
   hangerDrop: 0,

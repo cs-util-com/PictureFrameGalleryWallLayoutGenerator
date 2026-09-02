@@ -82,10 +82,19 @@ Each layout runs through four stages:
    as the run cools. The cost function weighs collisions and spacing violations
    an order of magnitude above matters of taste: visual balance, trapped empty
    space, silhouette, size mixing, and how much grid-like structure the _Style_
-   slider is asking for.
-4. **Settle** (`constraints.js`) — turn near-alignments into exact ones, then
-   repair any remaining physical violation by pushing crowded frames apart and
-   clamping them back onto the wall.
+   slider is asking for. Alignment is scored by how far the frames commit to
+   _shared lines_ — edges and centre lines, clustered and squared — rather than
+   by counting aligned pairs, which cannot tell one long row from a scatter of
+   coincidences.
+4. **Settle** (`constraints.js`) — cluster near-alignments onto shared lines,
+   then repair any remaining physical violation by pushing crowded frames apart
+   and clamping them back onto the wall.
+
+Finally the arrangement is anchored: centred horizontally, and placed
+vertically so the centre of the whole group sits at eye level — 145 cm above
+the floor by default, the figure galleries hang to. A cluster is positioned as
+though it were a single picture, so the wall height you enter has to be the
+real floor-to-ceiling height rather than just the patch you are decorating.
 
 Only the last stage decides whether a layout is usable. Keeping physical rules
 separate from aesthetic preferences is what makes the engine predictable: a
