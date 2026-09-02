@@ -515,6 +515,15 @@ describe('resilience', () => {
     expect(panel.open).toBe(false);
   });
 
+  it('runs the engine inline when no worker is available', () => {
+    // jsdom has no Worker, which is also the state of a page opened off the
+    // filesystem or in a browser that refuses module workers. The layout must
+    // still appear, and the progress bar must stay out of the way, because
+    // inline there is nothing to report -- the answer is already in hand.
+    expect($('#preview').querySelectorAll('rect.frame').length).toBeGreaterThan(0);
+    expect($('#progress').hidden).toBe(true);
+  });
+
   it('stops adding rows at the supported maximum', () => {
     for (let i = 0; i < 60; i++) $('#btn-add-row').click();
     expect(document.querySelectorAll('#inventory-list .frame-row').length).toBeLessThanOrEqual(40);

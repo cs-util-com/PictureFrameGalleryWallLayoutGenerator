@@ -175,6 +175,20 @@
         <p id="notices" class="notices" role="alert"></p>
         <div class="preview" id="preview" tabindex="-1"></div>
 
+        <div
+          class="progress"
+          id="progress"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-labelledby="progress-label"
+          hidden
+        >
+          <p class="progress-label" id="progress-label">Working</p>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        </div>
+
         <div class="action-bar">
           <p id="status" class="status" aria-live="polite"></p>
           <div class="action-buttons">

@@ -10,9 +10,9 @@
  */
 
 import { DEFAULT_STATE, decodeState, encodeState, loadState, saveState } from './state.js';
-import { generateLayout } from './layout.js';
 import { renderLayoutSVG, PALETTE } from './render.js';
 import { hangingPlan } from './hanging.js';
+import { createEngine } from './engine.js';
 import { normalizeInventory, totalFrameCount, MAX_FRAMES, MAX_ROWS } from './inventory.js';
 import { copyToClipboard, downloadPNG, downloadSVG } from './export.js';
 
@@ -37,6 +37,7 @@ const NOTICE_TEXT = {
 export function createApp({ document: doc, window: win, storage }) {
   let state = null;
   let layout = null;
+  let engine = null;
   let generateTimer = null;
   let holdTimer = null;
   let holdInterval = null;
@@ -91,17 +92,50 @@ export function createApp({ document: doc, window: win, storage }) {
       win.clearTimeout(generateTimer);
       generateTimer = null;
     }
-    layout = generateLayout({
-      inventory: state.inventory,
-      wallW: state.wallW,
-      wallH: state.wallH,
-      gap: state.gap,
-      seed: state.seed,
-      options: state.options,
-      centreHeight: state.centreHeight,
-    });
-    renderOutput();
-    persist(history);
+
+    showProgress(0, 'Working');
+    engine.run(
+      {
+        inventory: state.inventory,
+        wallW: state.wallW,
+        wallH: state.wallH,
+        gap: state.gap,
+        seed: state.seed,
+        options: state.options,
+        centreHeight: state.centreHeight,
+      },
+      {
+        onProgress: showProgress,
+        onDone: (result) => {
+          layout = result;
+          hideProgress();
+          renderOutput();
+          persist(history);
+        },
+      }
+    );
+  }
+
+  /**
+   * The search takes seconds on a crowded wall. Off the main thread that is
+   * fine, but only if the page says so -- an unexplained pause reads as a
+   * hang. Inline (no worker) there is nothing to show: the result is already
+   * in hand by the time this could paint.
+   */
+  function showProgress(progress, label) {
+    const bar = $('#progress');
+    if (!bar || !engine.usesWorker) return;
+    bar.hidden = false;
+    bar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+    const fill = $('#progress-fill');
+    if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+    const text = $('#progress-label');
+    if (text && label) text.textContent = label;
+  }
+
+  function hideProgress() {
+    const bar = $('#progress');
+    if (bar) bar.hidden = true;
   }
 
   function persist(history = 'replace') {
@@ -631,6 +665,7 @@ export function createApp({ document: doc, window: win, storage }) {
 
   return {
     start() {
+      engine = createEngine(win);
       state = initialState();
       // Seed 0 is a perfectly good seed, and it is the default; testing for
       // falsiness here silently replaced it and broke ?s=0 links.
@@ -647,6 +682,8 @@ export function createApp({ document: doc, window: win, storage }) {
       if (generateTimer) win.clearTimeout(generateTimer);
       if (flashTimer) win.clearTimeout(flashTimer);
       stopHold();
+      engine?.dispose();
+      engine = null;
       for (const remove of listeners.splice(0)) remove();
     },
 

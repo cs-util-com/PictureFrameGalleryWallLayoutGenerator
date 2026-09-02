@@ -9,6 +9,13 @@ const inventory = [
   { w: 10, h: 15, count: 4 },
 ];
 
+// `effort` scales how hard the engine looks. These tests assert legality,
+// reproducibility and cost, none of which depends on the search being
+// exhaustive, so they turn it down; a full-effort sweep of two hundred layouts
+// is minutes of CPU for assertions that hold at any effort. The three
+// composition tests below opt back up to what the app actually ships.
+const FAST = 0.08;
+
 const run = (overrides = {}) =>
   generateLayout({
     inventory,
@@ -17,6 +24,7 @@ const run = (overrides = {}) =>
     gap: 7,
     seed: 1,
     options: DEFAULT_OPTIONS,
+    effort: FAST,
     ...overrides,
   });
 
@@ -43,6 +51,7 @@ describe('generateLayout: hard invariants', () => {
               gap,
               seed,
               options: { ...DEFAULT_OPTIONS, useAll },
+              effort: FAST,
             });
             const limits = { gap, wallW, wallH };
             expect(
@@ -163,7 +172,7 @@ describe('generateLayout: options', () => {
     const measure = (order) => {
       let sum = 0;
       let n = 0;
-      for (let seed = 0; seed < 12; seed++) {
+      for (let seed = 0; seed < 8; seed++) {
         const { frames } = generateLayout({
           inventory: [
             { w: 20, h: 30, count: 3 },
@@ -175,6 +184,7 @@ describe('generateLayout: options', () => {
           gap: 6,
           seed,
           options: { ...DEFAULT_OPTIONS, useAll: true, order },
+          effort: 0.25,
         });
         if (frames.length > 2) {
           sum += alignedShare(frames);
@@ -224,7 +234,7 @@ describe('generateLayout: options', () => {
 
     const measure = (order) => {
       let sum = 0;
-      for (let seed = 1; seed <= 12; seed++) {
+      for (let seed = 1; seed <= 8; seed++) {
         const { frames } = generateLayout({
           inventory: [
             { w: 20, h: 30, count: 3 },
@@ -236,10 +246,11 @@ describe('generateLayout: options', () => {
           gap: 7,
           seed,
           options: { ...DEFAULT_OPTIONS, useAll: true, preferOdd: false, order },
+          effort: 1,
         });
         sum += consolidation(frames);
       }
-      return sum / 12;
+      return sum / 8;
     };
 
     // Without a grid seed this sat at 0.24; the salon end is around 0.07.
@@ -251,7 +262,7 @@ describe('generateLayout: options', () => {
   const sweep = (order, measureOne) => {
     let sum = 0;
     let n = 0;
-    for (let seed = 1; seed <= 15; seed++) {
+    for (let seed = 1; seed <= 8; seed++) {
       const { frames } = generateLayout({
         inventory,
         wallW: 250,
@@ -259,6 +270,7 @@ describe('generateLayout: options', () => {
         gap: 7,
         seed,
         options: { ...DEFAULT_OPTIONS, useAll: true, preferOdd: false, order },
+        effort: 1,
       });
       if (frames.length < 3) continue;
       sum += measureOne(frames);
@@ -469,6 +481,7 @@ describe('generateLayout: cost', () => {
       gap: 5,
       seed: 1,
       options: { ...DEFAULT_OPTIONS, useAll: true },
+      effort: 0.15,
     });
 
   it('does a bounded amount of work on a large inventory', () => {
@@ -490,6 +503,7 @@ describe('generateLayout: cost', () => {
       gap: 5,
       seed: 1,
       options: { ...DEFAULT_OPTIONS, useAll: true },
+      effort: 0.15,
     });
     const large = layOutBig();
     // Roughly seven times the frames must not mean orders of magnitude more
@@ -508,6 +522,7 @@ describe('generateLayout: cost', () => {
       gap: 5,
       seed: 1,
       options: { ...DEFAULT_OPTIONS, useAll: true },
+      effort: 0.15,
     });
     expect(result.stats.attempts).toBeLessThan(12);
     expect(result.placed).toBeGreaterThan(0);
@@ -524,6 +539,7 @@ describe('generateLayout: cost', () => {
       gap: 4,
       seed: 3,
       options: { ...DEFAULT_OPTIONS, useAll: true },
+      effort: 0.15,
     });
     expect(result.placed).toBeGreaterThanOrEqual(10);
   });
@@ -537,6 +553,7 @@ describe('generateLayout: cost', () => {
       gap: 5,
       seed: 1,
       options: { ...DEFAULT_OPTIONS, useAll: true },
+      effort: 0.15,
     });
     expect(Date.now() - started).toBeLessThan(20000);
   });

@@ -402,6 +402,44 @@ input[type='range'] {
   color: var(--text-muted);
 }
 
+/* Shown only while the engine is thinking, which on a crowded wall is several
+   seconds. Reserving no space when hidden keeps the layout from jumping. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.progress-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.progress-track {
+  width: min(320px, 100%);
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 120ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+}
+
 /* The action bar sits directly below the preview so "Try another" is always
    visible when you are looking at the layout. On mobile this is the first
    thing below the drawing; on desktop it is still in the preview column. */

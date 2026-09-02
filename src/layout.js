@@ -44,7 +44,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
 export const EYE_LEVEL = 145;
 
 /** Independent annealing runs per frame count. The best valid one wins. */
-const RUNS_PER_ATTEMPT = 3;
+const RUNS_PER_ATTEMPT = 6;
 
 /**
  * Runs used while merely testing whether a frame count is feasible. Probing is
@@ -62,11 +62,26 @@ const RUNS_PER_PROBE = 2;
  */
 const MAX_CLIMB_STEPS = 8;
 
+/** Independent runs at a given effort; never fewer than one. */
+const runsFor = (work) => Math.max(1, Math.round(RUNS_PER_ATTEMPT * work));
+
+/**
+ * Annealing iterations for a frame count, before effort is applied.
+ *
+ * Scoring a layout is O(n^2), so the work budget caps iterations x pairs rather
+ * than letting both grow together.
+ */
+const iterationsFor = (n) => {
+  const requested = Math.min(MAX_ITERATIONS, BASE_ITERATIONS + ITERATIONS_PER_FRAME * n);
+  const affordable = WORK_BUDGET / Math.max(1, n * n);
+  return Math.max(MIN_ITERATIONS, Math.min(requested, affordable));
+};
+
 /** Annealing iterations, scaled with the number of frames. */
-const BASE_ITERATIONS = 1200;
-const ITERATIONS_PER_FRAME = 90;
-const MAX_ITERATIONS = 6000;
-const MIN_ITERATIONS = 1500;
+const BASE_ITERATIONS = 3000;
+const ITERATIONS_PER_FRAME = 220;
+const MAX_ITERATIONS = 20000;
+const MIN_ITERATIONS = 4000;
 
 /**
  * Ceiling on iterations x pair-comparisons for one run.
@@ -77,11 +92,34 @@ const MIN_ITERATIONS = 1500;
  * top of the range, where the arrangement is dominated by fitting the frames in
  * at all rather than by fine composition.
  */
-const WORK_BUDGET = 7_000_000;
+const WORK_BUDGET = 45_000_000;
 
 /** Annealing temperature schedule (geometric, from START down to END). */
 const T_START = 1.0;
 const T_END = 0.001;
+
+/**
+ * Polish: rounds of perturb-and-reanneal applied to the winning layout.
+ *
+ * Independent restarts each throw away everything the previous one learnt. An
+ * iterated local search instead keeps the best composition found so far,
+ * disturbs a few frames, and re-anneals from just warm enough to escape the
+ * local minimum without discarding the arrangement -- which spends a long time
+ * budget far better than simply running more independent searches.
+ */
+const POLISH_ROUNDS = 26;
+/**
+ * Rounds are scaled down on a crowded wall: each one costs O(n^2) per
+ * iteration, so a full complement on sixty frames turns a long think into a
+ * hang. This keeps the wall-clock cost roughly flat across inventory sizes.
+ */
+const POLISH_MIN_ROUNDS = 6;
+const POLISH_ROUND_BUDGET = 1600;
+const T_POLISH_START = 0.18;
+const POLISH_ITERATION_SHARE = 0.4;
+const POLISH_MAX_KICKS = 3;
+/** How far a kicked frame is thrown, as a share of the group's own size. */
+const POLISH_KICK_SPREAD = 0.07;
 
 /** Candidate positions tried when seeding each non-anchor frame. */
 const SEED_ATTEMPTS = 40;
@@ -133,7 +171,19 @@ export function generateLayout({
   seed,
   options,
   centreHeight = EYE_LEVEL,
+  onProgress,
+  effort = 1,
 }) {
+  // Optional, and called only at phase boundaries: the search is a long
+  // synchronous block, so whoever runs it needs a way to say how far along it
+  // is. A no-op keeps every call site free of null checks.
+  const report = typeof onProgress === 'function' ? onProgress : () => {};
+
+  // How hard to look. One is what the app ships; the tests that sweep the
+  // parameter space for legality rather than for beauty turn it down, because
+  // a full-effort search of two hundred layouts is minutes of CPU for an
+  // assertion that does not depend on any of it.
+  const work = Math.max(0.02, Math.min(1, Number(effort) || 0));
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const rows = normalizeInventory(inventory);
   const available = expandInventory(rows);
@@ -146,6 +196,8 @@ export function generateLayout({
   };
   const spacing = Math.max(0, Number(gap) || 0);
   const anchor = Math.max(0, Number(centreHeight) || 0);
+
+  report(0.02, 'Reading your frames');
 
   if (!(wall.w > 0) || !(wall.h > 0)) {
     return emptyResult(total, ['invalid-wall']);
@@ -179,8 +231,10 @@ export function generateLayout({
   // Fast path first: almost every real inventory fits on its wall, and testing
   // the whole set settles that in one search rather than bisecting up to it.
   stats.attempts++;
-  best = searchLayout(candidates, wall, spacing, opts, rng, limits, stats, RUNS_PER_ATTEMPT);
+  report(0.05, 'Arranging the frames');
+  best = searchLayout(candidates, wall, spacing, opts, rng, limits, stats, runsFor(work), work);
   if (best) {
+    best = polish(best, wall, spacing, opts, rng, limits, stats, report, work);
     positionOnWall(best.frames, wall.w, wall.h, anchor);
     return describeResult(best, selected, total, wall, notices, stats);
   }
@@ -189,6 +243,7 @@ export function generateLayout({
   let high = candidates.length - 1;
   let bestCount = 0;
 
+  report(0.1, 'Working out how many will fit');
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     stats.attempts++;
@@ -200,7 +255,8 @@ export function generateLayout({
       rng,
       limits,
       stats,
-      RUNS_PER_PROBE
+      Math.max(1, Math.round(RUNS_PER_PROBE * work)),
+      work
     );
     if (probe) {
       bestCount = mid;
@@ -226,7 +282,8 @@ export function generateLayout({
       rng,
       limits,
       stats,
-      RUNS_PER_ATTEMPT
+      runsFor(work),
+      work
     );
     if (!higher) break;
     bestCount++;
@@ -247,6 +304,7 @@ export function generateLayout({
   );
   if (polished && polished.energy < best.energy) best = polished;
 
+  best = polish(best, wall, spacing, opts, rng, limits, stats, report, work);
   positionOnWall(best.frames, wall.w, wall.h, anchor);
   return describeResult(best, selected, total, wall, notices, stats);
 }
@@ -289,11 +347,19 @@ function emptyResult(total, notices) {
  * Runs several independent annealing attempts on one set of frames and returns
  * the best layout that survives repair, or null if none does.
  */
-function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RUNS_PER_ATTEMPT) {
+function searchLayout(
+  candidates,
+  wall,
+  gap,
+  opts,
+  rng,
+  limits,
+  stats,
+  runs = RUNS_PER_ATTEMPT,
+  work = 1
+) {
   const n = candidates.length;
-  const requested = Math.min(MAX_ITERATIONS, BASE_ITERATIONS + ITERATIONS_PER_FRAME * n);
-  const affordable = WORK_BUDGET / Math.max(1, n * n);
-  const iterations = Math.max(MIN_ITERATIONS, Math.min(requested, Math.round(affordable)));
+  const iterations = Math.round(iterationsFor(n) * work);
 
   // Runs are compared under one shared context. Each run anneals against its
   // own randomly drawn target silhouette, so its own energy is measured from a
@@ -389,6 +455,98 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
  * @returns {object|null} The envelope, or null when no grid fits the wall, in
  *   which case the caller falls back to the ordinary random seed.
  */
+/**
+ * Iterated local search over the winning layout.
+ *
+ * The search proper takes the best of several independent runs, each starting
+ * from nothing. That wastes a long time budget: every restart discards a whole
+ * composition to roll the dice again. This instead holds on to the best
+ * arrangement found and repeatedly disturbs a few frames and re-anneals from a
+ * temperature warm enough to escape the local minimum but too cool to melt the
+ * composition, keeping the result only when it scores better.
+ *
+ * Runs once, on the final layout, so the feasibility bisect stays cheap.
+ */
+function polish(best, wall, gap, opts, rng, limits, stats, report = () => {}, work = 1) {
+  const ctx = createEnergyContext({
+    wallW: wall.w,
+    wallH: wall.h,
+    gap,
+    order: opts.order,
+    mixSizes: opts.mixSizes,
+    allowRotation: opts.allowRotation,
+    targetAspect: wall.w / wall.h,
+  });
+
+  let bestFrames = best.frames;
+  stats.energyEvaluations++;
+  let bestEnergy = computeEnergy(bestFrames, ctx).total;
+  const n = bestFrames.length;
+  if (n < 2) return { frames: bestFrames, energy: bestEnergy };
+
+  // Share the same work ceiling as the main search, so a big wall does not
+  // turn a long think into a hang.
+  const iterations = Math.max(50, Math.round(POLISH_ITERATION_SHARE * iterationsFor(n) * work));
+
+  const rounds = Math.max(
+    1,
+    Math.round(
+      Math.max(POLISH_MIN_ROUNDS, POLISH_ROUNDS * Math.min(1, POLISH_ROUND_BUDGET / (n * n))) * work
+    )
+  );
+
+  for (let round = 0; round < rounds; round++) {
+    // The search proper is roughly the first third of the wait; the rest of the
+    // bar belongs to polishing, which is where most of the time now goes.
+    report(0.35 + 0.6 * (round / rounds), 'Refining the composition');
+    const trial = cloneFrames(bestFrames);
+    const envelope = envelopeAround(trial, wall);
+
+    // The kick: displace a few frames so the re-anneal starts somewhere new.
+    // Without it every round would re-converge on the layout it started from.
+    const kicks = 1 + rng.int(POLISH_MAX_KICKS);
+    for (let k = 0; k < kicks; k++) {
+      const f = trial[rng.int(n)];
+      f.x += rng.bell(envelope.w * POLISH_KICK_SPREAD);
+      f.y += rng.bell(envelope.h * POLISH_KICK_SPREAD);
+    }
+
+    anneal(trial, ctx, rng, envelope, iterations, opts, stats, T_POLISH_START);
+    settle(trial, limits, opts.order);
+    if (!repairLayout(trial, limits)) continue;
+    compact(trial, limits);
+    settle(trial, limits, opts.order);
+    if (!repairLayout(trial, limits)) continue;
+
+    stats.energyEvaluations++;
+    const energy = computeEnergy(trial, ctx).total;
+    if (energy < bestEnergy) {
+      bestFrames = trial;
+      bestEnergy = energy;
+    }
+  }
+
+  report(0.97, 'Finishing up');
+  return { frames: bestFrames, energy: bestEnergy };
+}
+
+/**
+ * The region the polish rounds may move frames within: the group's own box,
+ * grown a little so a frame can be relocated just outside the current
+ * silhouette, and clamped to the wall.
+ */
+function envelopeAround(frames, wall) {
+  const box = boundingBox(frames);
+  if (!box) return { x: 0, y: 0, w: wall.w, h: wall.h, aspect: wall.w / wall.h };
+  const padX = Math.min(box.width * 0.15, wall.w * 0.1);
+  const padY = Math.min(box.height * 0.15, wall.h * 0.1);
+  const x = Math.max(0, box.minX - padX);
+  const y = Math.max(0, box.minY - padY);
+  const w = Math.max(1, Math.min(wall.w - x, box.width + 2 * padX));
+  const h = Math.max(1, Math.min(wall.h - y, box.height + 2 * padY));
+  return { x, y, w, h, aspect: Math.max(0.1, w / h) };
+}
+
 /** Whether two frames sit on a shared edge or centre line, on either axis. */
 function sharesLine(a, b) {
   const t = ALIGN_SNAP_MAX;

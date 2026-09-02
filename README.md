@@ -106,6 +106,17 @@ the floor by default, the figure galleries hang to. A cluster is positioned as
 though it were a single picture, so the wall height you enter has to be the
 real floor-to-ceiling height rather than just the patch you are decorating.
 
+The winner then goes through an iterated local search: a few frames are
+disturbed and the arrangement is re-annealed from a temperature warm enough to
+escape the local minimum but too cool to melt the composition, keeping the
+result only when it scores better. Independent restarts throw away everything
+the previous one learnt, which spends a long time budget badly; this does not.
+
+Because that takes seconds on a crowded wall, the engine runs in a module
+worker (`src/worker.js`, chosen by `src/engine.js`) and reports progress as it
+goes. Anywhere a worker is unavailable — a test environment, a page opened off
+the filesystem — it runs inline instead, and callers see no difference.
+
 Only the last stage decides whether a layout is usable. Keeping physical rules
 separate from aesthetic preferences is what makes the engine predictable: a
 layout is never thrown away for being merely untidy, and if the frames genuinely
