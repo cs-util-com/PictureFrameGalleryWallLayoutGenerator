@@ -82,13 +82,23 @@ Each layout runs through four stages:
    as the run cools. The cost function weighs collisions and spacing violations
    an order of magnitude above matters of taste: visual balance, trapped empty
    space, silhouette, size mixing, and how much grid-like structure the _Style_
-   slider is asking for. Alignment is scored by how far the frames commit to
+   slider is asking for. The silhouette term charges for frames reaching outside
+   the ellipse inscribed in their own bounding box, which rounds the outline
+   into a blob rather than a filled rectangle; it fades out toward the ordered
+   end, since a grid is a rectangle by definition and asking for both gets
+   neither. Alignment is scored by how far the frames commit to
    _shared lines_ — edges and centre lines, clustered and squared — rather than
    by counting aligned pairs, which cannot tell one long row from a scatter of
    coincidences.
 4. **Settle** (`constraints.js`) — cluster near-alignments onto shared lines,
-   then repair any remaining physical violation by pushing crowded frames apart
-   and clamping them back onto the wall.
+   compact the group so it sits at the spacing you asked for rather than
+   wherever annealing left it, then repair any remaining physical violation by
+   pushing crowded frames apart and clamping them back onto the wall.
+
+Compaction draws each frame toward the group's centre along its own radius, so
+the arrangement tightens and rounds off at the same time — the corners of a
+bounding box are its furthest points, so they close first. It will not trade
+away an alignment to gain a centimetre, which is what keeps a grid a grid.
 
 Finally the arrangement is anchored: centred horizontally, and placed
 vertically so the centre of the whole group sits at eye level — 145 cm above

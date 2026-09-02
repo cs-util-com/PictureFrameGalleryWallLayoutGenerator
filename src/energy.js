@@ -31,6 +31,7 @@ export const WEIGHTS = {
   dispersion: 2,
   rotationMix: 3,
   alignment: 8,
+  silhouette: 45,
   // Not part of the total: this one only scores individual frames, to decide
   // which frame the annealer should try relocating.
   isolation: 50,
@@ -95,6 +96,7 @@ const emptyTerms = () => ({
   dispersion: 0,
   rotationMix: 0,
   alignment: 0,
+  silhouette: 35,
 });
 
 /**
@@ -207,6 +209,35 @@ export function computeEnergy(frames, ctx) {
     Math.max(0, (boxArea - totalArea) / totalArea) *
     WEIGHTS.voids *
     (1 - VOID_ORDER_FADE * ctx.order);
+
+  // --- Silhouette: a cluster reads as deliberate when its outline is a rounded
+  // blob rather than a filled rectangle, which is what the trade means by
+  // arranging to a shape. Measured as how far each frame reaches outside the
+  // ellipse inscribed in the arrangement's own bounding box: a frame centred on
+  // an edge sits exactly on that ellipse and costs nothing, while one pushed
+  // into a corner reaches sqrt(2) times its radius and is charged for it.
+  //
+  // Weighted by area share, so a large frame in a corner -- which is what the
+  // eye actually catches -- costs more than a small one.
+  //
+  // This fades out as `order` rises, because it is in genuine tension with the
+  // other end of the slider: a Rasterhängung is a rectangle by definition, and
+  // asking for a grid and an oval at once gets neither. The rounded silhouette
+  // belongs to the salon end, where there is no grid to contradict.
+  let outside = 0;
+  for (const f of frames) {
+    let reach = 0;
+    for (let corner = 0; corner < 4; corner++) {
+      const px = f.x + (corner & 1 ? f.w : 0);
+      const py = f.y + (corner & 2 ? f.h : 0);
+      const rx = (px - centerX) / halfWidth;
+      const ry = (py - centerY) / halfHeight;
+      const r = Math.sqrt(rx * rx + ry * ry);
+      if (r > reach) reach = r;
+    }
+    outside += Math.max(0, reach - 1) * (f.area / totalArea);
+  }
+  terms.silhouette = outside * WEIGHTS.silhouette * (1 - ctx.order);
 
   // --- Aspect: keep the silhouette near the shape the run is aiming for.
   // Measured in log space so "twice as wide" and "half as wide" cost the same.

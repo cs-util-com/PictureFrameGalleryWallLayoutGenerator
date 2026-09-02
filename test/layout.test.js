@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateLayout, DEFAULT_OPTIONS } from '../src/layout.js';
 import { isValidLayout, EPSILON } from '../src/constraints.js';
-import { boundingBox } from '../src/geometry.js';
+import { boundingBox, clearance } from '../src/geometry.js';
 
 const inventory = [
   { w: 20, h: 30, count: 2 },
@@ -245,6 +245,78 @@ describe('generateLayout: options', () => {
     // Without a grid seed this sat at 0.24; the salon end is around 0.07.
     expect(measure(1)).toBeGreaterThan(0.3);
     expect(measure(1)).toBeGreaterThan(measure(0) * 3);
+  });
+
+  // Shared helpers for the two composition tests below.
+  const sweep = (order, measureOne) => {
+    let sum = 0;
+    let n = 0;
+    for (let seed = 1; seed <= 15; seed++) {
+      const { frames } = generateLayout({
+        inventory,
+        wallW: 250,
+        wallH: 250,
+        gap: 7,
+        seed,
+        options: { ...DEFAULT_OPTIONS, useAll: true, preferOdd: false, order },
+      });
+      if (frames.length < 3) continue;
+      sum += measureOne(frames);
+      n++;
+    }
+    return sum / n;
+  };
+
+  const medianNeighbourGap = (frames) => {
+    const nearest = frames.map((a, i) =>
+      Math.min(...frames.filter((_, j) => j !== i).map((b) => clearance(a, b)))
+    );
+    return nearest.sort((x, y) => x - y)[Math.floor(nearest.length / 2)];
+  };
+
+  it('groups the frames at the spacing asked for, not far beyond it', () => {
+    // The gap setting is a minimum the engine must respect, but nothing used
+    // to pull frames back together once annealing had pushed them apart, so
+    // the ordered end drifted to a 10.7 cm median against the 7 cm requested
+    // and the arrangement read as scattered rather than as one group.
+    for (const order of [0, 0.5, 1]) {
+      const median = sweep(order, medianNeighbourGap);
+      expect(median, `order ${order}`).toBeGreaterThanOrEqual(7 - EPSILON);
+      expect(median, `order ${order}`).toBeLessThan(9.5);
+    }
+  });
+
+  it('rounds the outline instead of filling the corners of a rectangle', () => {
+    // A gallery wall reads as a deliberate cluster when its silhouette is
+    // rounded; a frame pushed into the corner of the bounding box is what
+    // makes an arrangement look like a filled rectangle. This measures how far
+    // outside the ellipse inscribed in its own bounding box each frame reaches.
+    const cornerness = (frames) => {
+      const box = boundingBox(frames);
+      const cx = (box.minX + box.maxX) / 2;
+      const cy = (box.minY + box.maxY) / 2;
+      const a = Math.max(1, box.width / 2);
+      const b = Math.max(1, box.height / 2);
+      let sum = 0;
+      for (const f of frames) {
+        let worst = 0;
+        for (const [px, py] of [
+          [f.x, f.y],
+          [f.x + f.w, f.y],
+          [f.x, f.y + f.h],
+          [f.x + f.w, f.y + f.h],
+        ]) {
+          worst = Math.max(worst, Math.hypot((px - cx) / a, (py - cy) / b));
+        }
+        sum += Math.max(0, worst - 1);
+      }
+      return sum / frames.length;
+    };
+
+    // Measured at 0.156 to 0.165 across the slider before the silhouette term.
+    for (const order of [0, 0.5]) {
+      expect(sweep(order, cornerness), `order ${order}`).toBeLessThan(0.1);
+    }
   });
 
   it('accepts both ends of the order slider', () => {

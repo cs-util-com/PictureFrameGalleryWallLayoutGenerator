@@ -93,6 +93,15 @@ const SEED_DENSITY_RANGE = 0.17;
 /** How far a near-alignment may be nudged to become an exact one, in cm. */
 const ALIGN_SNAP_MAX = 1.5;
 
+/**
+ * Compaction: how many sweeps, and the step sizes tried per frame per sweep.
+ *
+ * Largest step first, so a frame with room to move covers it quickly and the
+ * small steps only pay for the final closing-up.
+ */
+const COMPACT_PASSES = 14;
+const COMPACT_STEPS = [4, 2, 1, 0.5];
+
 /** Above this point on the Style slider, one run starts from a strict grid. */
 const GRID_SEED_MIN_ORDER = 0.6;
 
@@ -342,6 +351,12 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
 
     if (!repairLayout(frames, limits)) continue;
 
+    // Compaction only makes legal moves, but it changes what sits next to what,
+    // so near-alignments are re-snapped afterwards and the result re-checked.
+    compact(frames, limits);
+    settle(frames, limits, opts.order);
+    if (!repairLayout(frames, limits)) continue;
+
     stats.energyEvaluations++;
     const energy = computeEnergy(frames, commonCtx).total;
     if (!best || energy < best.energy) best = { frames, energy };
@@ -374,6 +389,92 @@ function searchLayout(candidates, wall, gap, opts, rng, limits, stats, runs = RU
  * @returns {object|null} The envelope, or null when no grid fits the wall, in
  *   which case the caller falls back to the ordinary random seed.
  */
+/** Whether two frames sit on a shared edge or centre line, on either axis. */
+function sharesLine(a, b) {
+  const t = ALIGN_SNAP_MAX;
+  return (
+    Math.abs(a.x - b.x) < t ||
+    Math.abs(a.x + a.w - (b.x + b.w)) < t ||
+    Math.abs(a.x + a.w / 2 - (b.x + b.w / 2)) < t ||
+    Math.abs(a.y - b.y) < t ||
+    Math.abs(a.y + a.h - (b.y + b.h)) < t ||
+    Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) < t
+  );
+}
+
+/**
+ * Pulls the arrangement together, and rounds it off in the process.
+ *
+ * The gap setting is a floor, not a target, and nothing else in the search
+ * pulls frames back once annealing has pushed them apart: runs ended with
+ * neighbours a median 10.7 cm apart where 7 cm was asked for, which reads as
+ * scattered rather than as one group.
+ *
+ * Each frame is drawn toward the group's centre along its own radius. That
+ * tightens the spacing and rounds the silhouette at the same time, because the
+ * corners of a bounding box are its furthest points from the centre and so are
+ * the first to close in — a gallery wall reads as deliberate when its outline
+ * is an oval rather than a filled rectangle.
+ *
+ * Every step is checked and reverted if it would break a physical rule, so this
+ * can only turn a legal layout into a tighter legal one.
+ */
+function compact(frames, limits) {
+  if (frames.length < 2) return;
+
+  // Tightening must not cost alignment. Pulling every frame toward the centre
+  // walks them off the shared lines the annealer just built -- it dropped the
+  // measured grid consolidation from 0.396 to 0.275 -- and `settle` can only
+  // recover a nudge of a centimetre or two, far less than a compaction step.
+  const linesShared = (index) => {
+    const f = frames[index];
+    let count = 0;
+    for (let k = 0; k < frames.length; k++) {
+      if (k === index) continue;
+      if (sharesLine(f, frames[k])) count++;
+    }
+    return count;
+  };
+
+  for (let pass = 0; pass < COMPACT_PASSES; pass++) {
+    const box = boundingBox(frames);
+    if (!box) return;
+    const cx = (box.minX + box.maxX) / 2;
+    const cy = (box.minY + box.maxY) / 2;
+
+    // Outermost frames first: they have the furthest to travel, and letting an
+    // inner frame move first would close the space the outer one needs.
+    const byDistance = frames
+      .map((f, i) => ({ i, d: Math.hypot(f.x + f.w / 2 - cx, f.y + f.h / 2 - cy) }))
+      .sort((a, b) => b.d - a.d || a.i - b.i);
+
+    let moved = false;
+    for (const { i } of byDistance) {
+      const f = frames[i];
+      const dx = cx - (f.x + f.w / 2);
+      const dy = cy - (f.y + f.h / 2);
+      const distance = Math.hypot(dx, dy);
+      if (distance < EPSILON) continue;
+
+      for (const step of COMPACT_STEPS) {
+        if (step > distance) continue;
+        const savedX = f.x;
+        const savedY = f.y;
+        const before = linesShared(i);
+        f.x += (dx / distance) * step;
+        f.y += (dy / distance) * step;
+        if (pairIsSafe(frames, i, i, limits) && linesShared(i) >= before) {
+          moved = true;
+          break;
+        }
+        f.x = savedX;
+        f.y = savedY;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 function seedGrid(frames, wall, gap, opts) {
   const n = frames.length;
   if (n === 0) return null;
