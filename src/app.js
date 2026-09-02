@@ -165,7 +165,7 @@ export function createApp({ document: doc, window: win, storage }) {
 
   function renderHangingList() {
     const body = $('#hanging-list').querySelector('tbody');
-    const { items } = hangingPlan(layout.frames, {
+    const { items, block } = hangingPlan(layout.frames, {
       wallW: state.wallW,
       wallH: state.wallH,
       hangerDrop: state.hangerDrop,
@@ -178,7 +178,7 @@ export function createApp({ document: doc, window: win, storage }) {
           [item.number, true],
           [item.rotated ? `${item.label} (turned)` : item.label, false],
           [`${item.nailX} cm`, false],
-          [`${item.nailY} cm`, false],
+          [`${item.nailFromFloor} cm`, false],
           [`${item.fromFloor} cm`, false],
         ]) {
           const cell = doc.createElement(header ? 'th' : 'td');
@@ -189,6 +189,17 @@ export function createApp({ document: doc, window: win, storage }) {
         return tr;
       })
     );
+
+    // `block` was computed and discarded. It is what you need before the first
+    // nail: how big the whole group is, and the one line to mark on the wall.
+    const setup = $('#hanging-setup');
+    if (setup) {
+      setup.textContent = block
+        ? `The whole group is ${block.width} × ${block.height} cm. Mark a level line ` +
+          `${block.centerFromFloor} cm above the floor on the wall's centre line — every ` +
+          `height below is measured from the floor.`
+        : '';
+    }
   }
 
   function renderInventoryNote() {

@@ -65,6 +65,28 @@ describe('hangingPlan', () => {
     expect(item.nailY).toBe(25);
   });
 
+  // Nobody measures down from a ceiling: it is out of reach, often not level,
+  // and frequently has coving. This is the one number a person on a stepladder
+  // actually needs, and it used to be the one number the table did not give.
+  it('reports the nail height above the floor', () => {
+    const [item] = hangingPlan([frame(40, 25, 20, 30)], { ...wall, hangerDrop: 6 }).items;
+    expect(item.nailFromFloor).toBe(169);
+    expect(item.nailFromFloor + item.nailY).toBe(wall.wallH);
+  });
+
+  it('keeps the nail height above the floor consistent with the ceiling figure', () => {
+    const frames = [frame(0, 10, 20, 30), frame(50, 60, 13, 18), frame(90, 120, 10, 15)];
+    for (const item of hangingPlan(frames, { ...wall, hangerDrop: 4 }).items) {
+      expect(item.nailFromFloor).toBeCloseTo(wall.wallH - item.nailY, 6);
+    }
+  });
+
+  it('reports the anchor line to mark before hanging anything', () => {
+    const { block } = hangingPlan([frame(0, 40, 20, 30), frame(30, 50, 20, 30)], wall);
+    // Group spans y 40..80, centre 60 below the ceiling, so 140 above the floor.
+    expect(block.centerFromFloor).toBe(140);
+  });
+
   it('drops the nail below the top edge when the hanger hangs slack', () => {
     const [item] = hangingPlan([frame(40, 25, 20, 30)], { ...wall, hangerDrop: 6 }).items;
     expect(item.nailY).toBe(31);

@@ -114,6 +114,12 @@ describe('initial render', () => {
     const rows = $('#hanging-list').querySelectorAll('tbody tr');
     expect(rows.length).toBe($('#preview').querySelectorAll('rect.frame').length);
   });
+
+  it('states the group size and the line to mark before any nail goes in', () => {
+    const setup = $('#hanging-setup').textContent;
+    expect(setup).toMatch(/The whole group is [\d.]+ × [\d.]+ cm/);
+    expect(setup).toMatch(/Mark a level line [\d.]+ cm above the floor/);
+  });
 });
 
 describe('reacting to input', () => {

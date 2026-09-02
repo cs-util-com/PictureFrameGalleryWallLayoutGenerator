@@ -58,8 +58,11 @@ export function hangingPlan(frames, { wallW, wallH, hangerDrop = 0 }) {
       // how far below the top edge. It can never fall below the frame itself.
       nailX: mm(f.x + f.w / 2),
       nailY: mm(f.y + Math.min(drop, f.h)),
-      // Useful when marking up from the floor rather than down from a ceiling
-      // that may not be level.
+      // The number to actually mark. Measuring up from the floor beats
+      // measuring down from a ceiling that is out of reach, often not level,
+      // and frequently has coving.
+      nailFromFloor: mm(wallH - (f.y + Math.min(drop, f.h))),
+      // The frame's bottom edge, as a cross-check once it is hung.
       fromFloor: mm(wallH - (f.y + f.h)),
     };
   });
@@ -75,6 +78,9 @@ export function hangingPlan(frames, { wallW, wallH, hangerDrop = 0 }) {
         height: mm(box.height),
         centerX: mm((box.minX + box.maxX) / 2),
         centerY: mm((box.minY + box.maxY) / 2),
+        // The line to chalk on the wall before anything else: the height the
+        // whole arrangement is anchored to.
+        centerFromFloor: mm(wallH - (box.minY + box.maxY) / 2),
         fromFloor: mm(wallH - box.maxY),
         wallW: mm(wallW),
         wallH: mm(wallH),
