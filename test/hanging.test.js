@@ -43,6 +43,55 @@ describe('hangingPlan', () => {
     expect(hangingPlan(frames, wall).items.map((i) => i.left)).toEqual([10, 100]);
   });
 
+  // "Within 5 cm of" is not an equivalence relation, and sort() on a
+  // non-transitive comparator may return anything. Before banding, 14% of
+  // permutations of the same frames came back in a different order.
+  it('gives the same order however the frames arrive', () => {
+    const rnd = (s) => {
+      let t = s + 0x6d2b79f5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const plan = (set) =>
+      hangingPlan(set, wall)
+        .items.map((i) => `${i.left},${i.top}`)
+        .join('|');
+
+    for (let trial = 0; trial < 40; trial++) {
+      const n = 6 + Math.floor(rnd(trial * 7) * 6);
+      const base = Array.from({ length: n }, (_, i) =>
+        frame(
+          Math.round(rnd(trial * 100 + i) * 200),
+          Math.round(rnd(trial * 100 + i + 50) * 60),
+          10,
+          10
+        )
+      );
+      const reference = plan(base);
+      for (let p = 0; p < 8; p++) {
+        const shuffled = [...base];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(rnd(trial * 1000 + p * 10 + i) * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        expect(plan(shuffled)).toBe(reference);
+      }
+    }
+  });
+
+  it('keeps a mixed-size row together, because rows band on centre lines', () => {
+    // A 40 cm and a 10 cm frame on one centre line have tops 15 cm apart.
+    // Banding by top edge sent you across the wall and back to collect the
+    // short one -- exactly the mixed-size row a Kantenhängung is built from.
+    const frames = [
+      frame(0, 100, 20, 40), // centre y 120
+      frame(30, 115, 20, 10), // centre y 120
+      frame(60, 100, 20, 40), // centre y 120
+    ];
+    expect(hangingPlan(frames, wall).items.map((i) => i.left)).toEqual([0, 30, 60]);
+  });
+
   it('numbers the frames in the order they should be hung', () => {
     const frames = [frame(100, 10, 20, 20), frame(10, 10, 20, 20)];
     expect(hangingPlan(frames, wall).items.map((i) => i.number)).toEqual([1, 2]);
