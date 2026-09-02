@@ -109,6 +109,22 @@ describe('renderLayoutSVG', () => {
     expect(svg).not.toContain('var(--');
   });
 
+  // The article's most actionable tip is to cut frame-sized templates and tape
+  // them to the wall. That only works if what you print comes out at the size
+  // it says. A viewBox alone has no intrinsic size, so a 300 cm wall opens as a
+  // 7.9 cm document and every measurement on it is a lie.
+  it('gives a downloaded file real dimensions so it prints at 1:1', () => {
+    const svg = renderLayoutSVG(frames, { ...opts, standalone: true });
+    expect(svg).toContain(`width="${opts.wallW}cm"`);
+    expect(svg).toContain(`height="${opts.wallH}cm"`);
+  });
+
+  it('leaves the in-page preview free to resize with its container', () => {
+    const svg = renderLayoutSVG(frames, opts);
+    expect(svg).not.toContain('cm"');
+    expect(parse(svg).querySelector('svg').getAttribute('width')).toBeNull();
+  });
+
   it('accepts a dark palette', () => {
     const svg = renderLayoutSVG(frames, { ...opts, standalone: true, palette: PALETTE.dark });
     expect(svg).toContain(PALETTE.dark.frameFill);

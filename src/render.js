@@ -87,8 +87,14 @@ export function renderLayoutSVG(frames, options) {
   const frameStroke = Math.max(0.2, shortSide * 0.004);
 
   const parts = [];
+  // A downloaded file gets real physical dimensions, so it opens at 1:1 in a
+  // print dialog, a drawing tool or a plotter: the whole app deals in exact
+  // centimetres and a viewBox alone throws that away, leaving the viewer to
+  // scale it to whatever it likes. The in-page preview must NOT get them, or it
+  // stops resizing with its container.
+  const physical = standalone ? `width="${num(wallW)}cm" height="${num(wallH)}cm" ` : '';
   parts.push(
-    `<svg ${standalone ? 'xmlns="http://www.w3.org/2000/svg" ' : ''}` +
+    `<svg ${standalone ? 'xmlns="http://www.w3.org/2000/svg" ' : ''}${physical}` +
       `viewBox="0 0 ${num(wallW)} ${num(wallH)}" preserveAspectRatio="xMidYMid meet" role="img" ` +
       `aria-labelledby="gw-title gw-desc">`
   );
