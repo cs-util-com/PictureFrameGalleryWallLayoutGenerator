@@ -768,7 +768,13 @@ function anneal(frames, ctx, rng, envelope, iterations, opts, stats, tStart = T_
   if (frames.length < 2) return;
 
   stats.energyEvaluations++;
-  let current = computeEnergy(frames, ctx);
+  // Two per-frame buffers, swapped on acceptance. One would be wrong: the
+  // accepted result's scores are read by `proposeMove` on every subsequent
+  // iteration, however many proposals are rejected in between, so the buffer
+  // being scored into must never be the one `current` is still holding.
+  // `scratch` is always the one that is safe to overwrite.
+  let scratch = new Array(frames.length).fill(0);
+  let current = computeEnergy(frames, ctx, new Array(frames.length).fill(0));
   let bestEnergy = current.total;
   let bestState = captureState(frames);
   const distribution = buildMoveDistribution(frames, opts);
@@ -779,10 +785,11 @@ function anneal(frames, ctx, rng, envelope, iterations, opts, stats, tStart = T_
     if (!move) continue;
 
     stats.energyEvaluations++;
-    const next = computeEnergy(frames, ctx);
+    const next = computeEnergy(frames, ctx, scratch);
     const delta = next.total - current.total;
 
     if (delta < 0 || rng.float() < Math.exp(-delta / temperature)) {
+      scratch = current.perFrame;
       current = next;
       if (next.total < bestEnergy) {
         bestEnergy = next.total;

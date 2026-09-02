@@ -115,10 +115,21 @@ const emptyTerms = () => ({
  *   frame is always index 0, and the relocate move spends the rest of the run
  *   flinging the largest frame -- the composition's anchor -- around at random.
  */
-export function computeEnergy(frames, ctx) {
+export function computeEnergy(frames, ctx, out = null) {
   const n = frames.length;
   const terms = emptyTerms();
-  const perFrame = new Array(n).fill(0);
+  // `out` lets the annealer supply the array to score into, rather than making
+  // this allocate one on every one of millions of calls. It is opt-in because
+  // the returned `perFrame` escapes -- the annealer keeps the last *accepted*
+  // one across arbitrarily many rejected iterations -- so the caller, not this
+  // function, has to know which buffer is safe to overwrite.
+  let perFrame;
+  if (out !== null && out.length === n) {
+    perFrame = out;
+    for (let i = 0; i < n; i++) perFrame[i] = 0;
+  } else {
+    perFrame = new Array(n).fill(0);
+  }
   if (n === 0) return { total: 0, perFrame, terms };
 
   let totalArea = 0;

@@ -137,6 +137,42 @@ describe('hard-constraint terms', () => {
   });
 });
 
+describe('the per-frame out-parameter', () => {
+  // The annealer supplies the array to score into, so computeEnergy does not
+  // allocate one on every one of millions of calls.
+  const layout = [frame(0, 0, 20, 30), frame(30, 0, 20, 30), frame(0, 40, 20, 30)];
+
+  it('scores identically whether or not a buffer is supplied', () => {
+    const c = ctx();
+    const fresh = computeEnergy(layout, c);
+    const reused = computeEnergy(layout, c, new Array(layout.length).fill(0));
+    expect(reused.total).toBe(fresh.total);
+    expect([...reused.perFrame]).toEqual([...fresh.perFrame]);
+  });
+
+  it('writes into the supplied buffer rather than a new one', () => {
+    const buffer = new Array(layout.length).fill(0);
+    const result = computeEnergy(layout, ctx(), buffer);
+    expect(result.perFrame).toBe(buffer);
+  });
+
+  it('clears the buffer, so a previous call cannot leak into this one', () => {
+    // Reused buffers arrive dirty. Accumulating on top of stale scores would
+    // make the relocate move chase frames that are already well placed.
+    const dirty = new Array(layout.length).fill(999);
+    const result = computeEnergy(layout, ctx(), dirty);
+    const clean = computeEnergy(layout, ctx());
+    expect([...result.perFrame]).toEqual([...clean.perFrame]);
+  });
+
+  it('ignores a buffer of the wrong length instead of writing past it', () => {
+    const tooShort = new Array(1).fill(0);
+    const result = computeEnergy(layout, ctx(), tooShort);
+    expect(result.perFrame).toHaveLength(layout.length);
+    expect(result.perFrame).not.toBe(tooShort);
+  });
+});
+
 describe('per-frame attribution', () => {
   it('marks an isolated frame as worse placed than a clustered one', () => {
     // The annealer relocates whichever frame scores worst. If only hard
