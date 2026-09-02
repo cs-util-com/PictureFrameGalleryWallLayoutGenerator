@@ -488,6 +488,33 @@ describe('resilience', () => {
     expect($('#preview svg').getAttribute('viewBox')).toBe('0 0 321 250');
   });
 
+  it('restores the previous layout when the user goes back', () => {
+    // Reroll pushes a history entry. Without a popstate listener the URL
+    // changed and the screen did not, so Back appeared to do nothing and the
+    // address bar disagreed with the layout on display.
+    const first = $('#seed').textContent;
+    const firstUrl = window.location.search;
+    $('#btn-reroll').click();
+    settle();
+    expect($('#seed').textContent).not.toBe(first);
+
+    window.history.replaceState({}, '', '/' + firstUrl);
+    window.dispatchEvent(new window.PopStateEvent('popstate'));
+    settle();
+    expect($('#seed').textContent).toBe(first);
+  });
+
+  it('opens the collapsed nail table for printing', () => {
+    // A collapsed <details> prints as its summary alone, which would leave the
+    // actual deliverable off the sheet.
+    const panel = document.querySelector('.hanging-panel');
+    panel.open = false;
+    window.dispatchEvent(new window.Event('beforeprint'));
+    expect(panel.open).toBe(true);
+    window.dispatchEvent(new window.Event('afterprint'));
+    expect(panel.open).toBe(false);
+  });
+
   it('stops adding rows at the supported maximum', () => {
     for (let i = 0; i < 60; i++) $('#btn-add-row').click();
     expect(document.querySelectorAll('#inventory-list .frame-row').length).toBeLessThanOrEqual(40);

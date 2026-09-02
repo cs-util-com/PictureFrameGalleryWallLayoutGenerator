@@ -67,9 +67,17 @@ export function hangingPlan(frames, { wallW, wallH, hangerDrop = 0 }) {
     // Measured against the centre that opened the band, not against the
     // previous frame: chaining neighbour-to-neighbour lets a long stagger drift
     // a whole row's worth without ever starting a new one.
-    const tolerance = Math.max(ROW_TOLERANCE_MIN, entry.f.h * ROW_TOLERANCE_RATIO);
+    // Scaled to the taller of the two frames, so the band is symmetric. Using
+    // only the joining frame's height made it asymmetric: a short frame sitting
+    // *below* a tall row's centre fell outside the band and was ordered last,
+    // sending the reader back across the wall for it -- the very defect banding
+    // on centre lines was meant to remove.
+    const tolerance = Math.max(
+      ROW_TOLERANCE_MIN,
+      Math.max(entry.f.h, band ? band.h : 0) * ROW_TOLERANCE_RATIO
+    );
     if (band && entry.cy - band.cy <= tolerance) band.items.push(entry);
-    else bands.push({ cy: entry.cy, items: [entry] });
+    else bands.push({ cy: entry.cy, h: entry.f.h, items: [entry] });
   }
   for (const band of bands) band.items.sort((a, b) => a.f.x - b.f.x || byGeometry(a, b));
   const sequence = bands.flatMap((band) => band.items);

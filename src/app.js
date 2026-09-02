@@ -108,8 +108,10 @@ export function createApp({ document: doc, window: win, storage }) {
     const query = encodeState(state);
     try {
       const url = `${win.location.pathname}?${query}`;
+      // 'none' is for restoring a state the user navigated back to: rewriting
+      // the URL there would clobber the entry they just returned to.
       if (history === 'push') win.history.pushState({}, '', url);
-      else win.history.replaceState({}, '', url);
+      else if (history !== 'none') win.history.replaceState({}, '', url);
     } catch {
       // Safari throttles replaceState and throws once the limit is hit, which a
       // sustained slider drag can reach. The URL falling behind is not worth
@@ -485,10 +487,34 @@ export function createApp({ document: doc, window: win, storage }) {
 
     on($('#btn-print'), 'click', () => win.print());
 
+    // Reroll pushes a history entry, so Back has to actually restore it --
+    // without this the URL changed and the screen did not, and the next edit
+    // overwrote the entry with replaceState.
+    on(win, 'popstate', () => {
+      state = decodeState(win.location.search);
+      syncControls();
+      renderInventory();
+      regenerate({ history: 'none' });
+    });
+
     // Printers render SVG fills, so a dark-palette preview would print a
-    // near-black wall. Swap to the light palette for the duration.
-    on(win, 'beforeprint', () => drawPreview(PALETTE.light));
-    on(win, 'afterprint', () => drawPreview());
+    // near-black wall. Swap to the light palette for the duration. The nail
+    // table can be collapsed on a phone, and a collapsed <details> prints as
+    // its summary alone -- which would drop the actual deliverable off the
+    // sheet -- so it is forced open for the print and restored afterwards.
+    let reopenHanging = false;
+    on(win, 'beforeprint', () => {
+      const panel = $('.hanging-panel');
+      reopenHanging = Boolean(panel) && !panel.open;
+      if (panel) panel.open = true;
+      drawPreview(PALETTE.light);
+    });
+    on(win, 'afterprint', () => {
+      const panel = $('.hanging-panel');
+      if (panel && reopenHanging) panel.open = false;
+      reopenHanging = false;
+      drawPreview();
+    });
 
     on($('#btn-theme'), 'click', () => {
       setTheme(currentTheme() === 'dark' ? 'light' : 'dark');

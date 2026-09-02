@@ -13,6 +13,7 @@
  */
 
 import { clearance, overlapArea } from './geometry.js';
+import { MAX_FRAMES } from './inventory.js';
 
 /**
  * Term weights. Kept in one place so the balance between "physically wrong" and
@@ -196,9 +197,11 @@ export function computeEnergy(frames, ctx) {
   // This fades as `order` rises, for the same reason `rows` does. A grid of
   // mixed-size frames must leave slack in every cell — that regular negative
   // space *is* the Rasterhängung — so charging full price for it at maximum
-  // "ordered" made the engine prefer its own irregular blob to a clean grid of
-  // the same frames (2.29 against 2.49, measured). Density and structure pull
-  // against each other, and at the ordered end structure should win.
+  // "ordered" charged for the very thing being asked for. Density and structure
+  // pull against each other, and at the ordered end structure should win.
+  //
+  // On its own this barely moves the output -- the grid seed does that work --
+  // but it stops the cost function contradicting the slider.
   const boxArea = Math.max(1, (maxX - minX) * (maxY - minY));
   terms.voids =
     Math.max(0, (boxArea - totalArea) / totalArea) *
@@ -314,7 +317,7 @@ function alignmentScore(frames) {
       // cleared, so counting distinct frames costs nothing per cluster.
       const stamp = axis * count + start + 1;
       while (end < count && unpackValue(coords[end]) - anchor <= ALIGN_TOLERANCE) {
-        const owner = coords[end] % PACK_SCALE;
+        const owner = unpackIndex(coords[end]);
         if (seen[owner] !== stamp) {
           seen[owner] = stamp;
           members++;
@@ -336,14 +339,30 @@ function alignmentScore(frames) {
  * The coordinate is quantised to 1/100 cm — far finer than ALIGN_TOLERANCE, and
  * finer than anyone can mark a wall — then shifted to leave room for the index
  * in the low digits. Everything stays an exact integer well inside 2^53.
+ *
+ * PACK_SCALE bounds the frame count: an index of PACK_SCALE or more would carry
+ * into the coordinate bits. MAX_FRAMES (60) is well under it — see the
+ * assertion below, which fails loudly rather than corrupting a layout.
  */
 const PACK_SCALE = 128;
 const PACK_QUANTUM = 100;
 const pack = (value, index) => Math.round(value * PACK_QUANTUM) * PACK_SCALE + index;
 const unpackValue = (key) => Math.floor(key / PACK_SCALE) / PACK_QUANTUM;
+// Floored modulo, not `%`. Frames sit at negative coordinates while the
+// annealer works, and JS `%` truncates toward zero -- `-127999 % 128` is -127,
+// not 1 -- so a negative key produced a negative index. Indexing an Int32Array
+// with that reads undefined and drops the write, which silently disabled the
+// distinct-frame dedupe and made the score depend on where the group sat.
+const unpackIndex = (key) => key - Math.floor(key / PACK_SCALE) * PACK_SCALE;
 
 // Sized exactly, so `sort()` needs no per-call subarray view. The frame count
 // is constant for a whole annealing run, so this allocates once per run.
+// An index of PACK_SCALE or more would carry into the coordinate bits and
+// silently corrupt every score. Fail loudly at load instead.
+if (MAX_FRAMES >= PACK_SCALE) {
+  throw new Error(`alignmentScore packing holds ${PACK_SCALE - 1} frames, not ${MAX_FRAMES}`);
+}
+
 let coordBuffer = new Float64Array(0);
 const scratchCoords = (size) => {
   if (coordBuffer.length !== size) coordBuffer = new Float64Array(size);

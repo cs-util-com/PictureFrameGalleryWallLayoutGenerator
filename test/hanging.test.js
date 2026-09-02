@@ -92,6 +92,20 @@ describe('hangingPlan', () => {
     expect(hangingPlan(frames, wall).items.map((i) => i.left)).toEqual([0, 30, 60]);
   });
 
+  it('keeps a mixed-size row together whichever way the short frame sits', () => {
+    // The band tolerance scaled to the *joining* frame's height, measured from
+    // the opener's centre, which is asymmetric: a short frame sitting below a
+    // tall row's centre line fell out of the band and you walked back for it.
+    const rowWith = (shortY) => [
+      frame(0, 80, 20, 40), // centre y 100
+      frame(30, shortY, 20, 10),
+      frame(60, 80, 20, 40), // centre y 100
+    ];
+    // The short frame is well inside the tall frames' span either way.
+    expect(hangingPlan(rowWith(83), wall).items.map((i) => i.left)).toEqual([0, 30, 60]);
+    expect(hangingPlan(rowWith(107), wall).items.map((i) => i.left)).toEqual([0, 30, 60]);
+  });
+
   it('numbers the frames in the order they should be hung', () => {
     const frames = [frame(100, 10, 20, 20), frame(10, 10, 20, 20)];
     expect(hangingPlan(frames, wall).items.map((i) => i.number)).toEqual([1, 2]);

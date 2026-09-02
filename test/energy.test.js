@@ -302,6 +302,25 @@ describe('aesthetic terms', () => {
     expect(share(5)).toBeGreaterThan(0.4);
   });
 
+  // Frames sit at negative coordinates while the annealer is working, and the
+  // scratch buffers pack the frame index into the low bits of a signed double.
+  // JS `%` truncates toward zero, so a negative key yielded a negative index,
+  // the distinct-frame dedupe silently stopped working, and the score changed
+  // depending on where the group happened to sit.
+  it('scores alignment the same wherever the arrangement sits', () => {
+    const base = [frame(0, 0, 2, 2), frame(0, 20, 2, 2), frame(40, 0, 20, 20)];
+    const c = ctx({ order: 1, wallW: 400, wallH: 400 });
+    const at = (offset) =>
+      computeEnergy(
+        base.map((f) => frame(f.x + offset, f.y + offset, f.w, f.h)),
+        c
+      ).terms.alignment;
+    const reference = at(10);
+    for (const offset of [-200, -100, -70, -1, 0, 50]) {
+      expect(at(offset)).toBeCloseTo(reference, 10);
+    }
+  });
+
   it('is indifferent to alignment at the middle of the slider', () => {
     const aligned = [frame(0, 0, 20, 20), frame(30, 0, 20, 20), frame(60, 0, 20, 20)];
     expect(computeEnergy(aligned, ctx({ order: 0.5 })).terms.alignment).toBeCloseTo(0, 10);
