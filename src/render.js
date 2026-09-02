@@ -79,6 +79,7 @@ export function renderLayoutSVG(frames, options) {
     palette = PALETTE.light,
     standalone = false,
     caption = '',
+    centreHeight = 0,
   } = options;
 
   const shortSide = Math.min(wallW, wallH);
@@ -100,7 +101,10 @@ export function renderLayoutSVG(frames, options) {
     )}</desc>`
   );
 
-  // The wall itself, then its centre lines as hanging guides.
+  // The wall itself, then the guides: the vertical centre line, and the
+  // horizontal line the arrangement is anchored to. That anchor is eye level
+  // when one is set, which is the line the user actually marks on the wall.
+  const guideY = centreHeight > 0 ? wallH - centreHeight : wallH / 2;
   parts.push(
     `<rect class="wall" x="0" y="0" width="${num(wallW)}" height="${num(wallH)}" ` +
       `fill="${palette.wallFill}" stroke="${palette.wallStroke}" stroke-width="${num(hairline)}"/>`
@@ -112,8 +116,8 @@ export function renderLayoutSVG(frames, options) {
       `stroke-dasharray="${dash}"/>`
   );
   parts.push(
-    `<line class="center-line" x1="0" y1="${num(wallH / 2)}" x2="${num(wallW)}" ` +
-      `y2="${num(wallH / 2)}" stroke="${palette.guide}" stroke-width="${num(hairline)}" ` +
+    `<line class="center-line" x1="0" y1="${num(guideY)}" x2="${num(wallW)}" ` +
+      `y2="${num(guideY)}" stroke="${palette.guide}" stroke-width="${num(hairline)}" ` +
       `stroke-dasharray="${dash}"/>`
   );
 

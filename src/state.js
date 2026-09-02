@@ -26,6 +26,9 @@ const LIMITS = {
   // Encoded in millimetres so half-centimetre precision survives an integer
   // round trip.
   hangerDrop: { min: 0, max: 500 },
+  // Zero is meaningful here -- it means "centre the group on the wall" rather
+  // than anchoring it to a height above the floor.
+  centreHeight: { min: 0, max: 400 },
 };
 
 /** The wall a first-time visitor sees. */
@@ -40,6 +43,8 @@ export const DEFAULT_STATE = Object.freeze({
   gap: 7,
   /** How far below the frame's top edge its hook or taut wire sits, in cm. */
   hangerDrop: 0,
+  /** Floor to the centre of the arrangement, in cm. Zero centres on the wall. */
+  centreHeight: 145,
   seed: 0,
   options: Object.freeze({
     allowRotation: true,
@@ -83,6 +88,7 @@ export function encodeState(state) {
   params.set('h', String(state.wallH));
   params.set('g', String(state.gap));
   params.set('k', String(Math.round((state.hangerDrop ?? 0) * 10)));
+  params.set('c', String(state.centreHeight ?? DEFAULT_STATE.centreHeight));
   params.set('s', String(state.seed));
   params.set('o', String(Math.round(state.options.order * 100)));
   params.set('r', state.options.allowRotation ? '1' : '0');
@@ -110,6 +116,7 @@ export function decodeState(search) {
     wallH: intOr(params.get('h'), defaults.wallH, LIMITS.wall),
     gap: intOr(params.get('g'), defaults.gap, LIMITS.gap),
     hangerDrop: intOr(params.get('k'), 0, LIMITS.hangerDrop) / 10,
+    centreHeight: intOr(params.get('c'), defaults.centreHeight, LIMITS.centreHeight),
     seed: intOr(params.get('s'), defaults.seed, LIMITS.seed),
     options: {
       allowRotation: flag(params.get('r'), defaults.options.allowRotation),
@@ -184,6 +191,7 @@ function withDefaults(state) {
     wallH: intOr(state.wallH, DEFAULT_STATE.wallH, LIMITS.wall),
     gap: intOr(state.gap, DEFAULT_STATE.gap, LIMITS.gap),
     hangerDrop: intOr((state.hangerDrop ?? 0) * 10, 0, LIMITS.hangerDrop) / 10,
+    centreHeight: intOr(state.centreHeight, DEFAULT_STATE.centreHeight, LIMITS.centreHeight),
     seed: intOr(state.seed, DEFAULT_STATE.seed, LIMITS.seed),
     options: { ...DEFAULT_STATE.options, ...(state.options || {}) },
   };

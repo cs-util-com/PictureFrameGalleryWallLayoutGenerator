@@ -197,10 +197,38 @@ describe('generateLayout: options', () => {
 });
 
 describe('generateLayout: composition', () => {
-  it('centres the arrangement on the wall', () => {
+  it('centres the arrangement horizontally on the wall', () => {
     const { frames } = run({ seed: 3 });
     const box = boundingBox(frames);
     expect((box.minX + box.maxX) / 2).toBeCloseTo(150, 6);
+  });
+
+  // The gallery convention is to put the centre of the whole group at eye
+  // level, 145 cm up. Centring on the wall instead — which is what this did
+  // before — hangs everything (145 - wallH/2) too low: 20 cm on a standard
+  // 250 cm ceiling, 45 cm on the app's own default wall.
+  it('puts the centre of the group at eye level, not the middle of the wall', () => {
+    for (const wallH of [220, 240, 250, 260, 300]) {
+      const { frames } = run({ wallH, seed: 3, centreHeight: 145 });
+      const box = boundingBox(frames);
+      const centreAboveFloor = wallH - (box.minY + box.maxY) / 2;
+      expect(centreAboveFloor).toBeCloseTo(145, 6);
+    }
+  });
+
+  it('keeps a group that cannot reach eye level on the wall', () => {
+    // A short wall cannot put a tall group's centre at 145 cm without pushing
+    // frames off the top; the anchor has to yield rather than hang them
+    // through the ceiling.
+    const { frames } = run({ wallH: 60, wallW: 400, seed: 3, centreHeight: 145 });
+    const box = boundingBox(frames);
+    expect(box.minY).toBeGreaterThanOrEqual(-1e-6);
+    expect(box.maxY).toBeLessThanOrEqual(60 + 1e-6);
+  });
+
+  it('falls back to centring on the wall when no eye level is given', () => {
+    const { frames } = run({ seed: 3, centreHeight: 0 });
+    const box = boundingBox(frames);
     expect((box.minY + box.maxY) / 2).toBeCloseTo(100, 6);
   });
 

@@ -10,6 +10,7 @@ const custom = {
   wallH: 180,
   gap: 4,
   hangerDrop: 2.5,
+  centreHeight: 150,
   seed: 987654,
   options: { allowRotation: false, useAll: true, preferOdd: false, mixSizes: true, order: 0.25 },
 };
@@ -92,6 +93,26 @@ describe('the hook drop', () => {
     expect(decodeState('k=-40').hangerDrop).toBeGreaterThanOrEqual(0);
     expect(decodeState('k=99999').hangerDrop).toBeLessThanOrEqual(50);
     expect(Number.isFinite(decodeState('k=abc').hangerDrop)).toBe(true);
+  });
+});
+
+describe('the eye-level anchor', () => {
+  it('travels in the link', () => {
+    expect(decodeState(encodeState({ ...custom, centreHeight: 152 })).centreHeight).toBe(152);
+  });
+
+  it('defaults to the 145 cm gallery standard', () => {
+    expect(decodeState('').centreHeight).toBe(145);
+  });
+
+  it('treats zero as "centre on the wall" rather than as a height', () => {
+    expect(decodeState('c=0').centreHeight).toBe(0);
+  });
+
+  it('clamps nonsense', () => {
+    expect(decodeState('c=-40').centreHeight).toBeGreaterThanOrEqual(0);
+    expect(decodeState('c=99999').centreHeight).toBeLessThanOrEqual(400);
+    expect(Number.isFinite(decodeState('c=abc').centreHeight)).toBe(true);
   });
 });
 

@@ -98,6 +98,7 @@ export function createApp({ document: doc, window: win, storage }) {
       gap: state.gap,
       seed: state.seed,
       options: state.options,
+      centreHeight: state.centreHeight,
     });
     renderOutput();
     persist();
@@ -147,6 +148,7 @@ export function createApp({ document: doc, window: win, storage }) {
     $('#preview').innerHTML = renderLayoutSVG(layout.frames, {
       wallW: state.wallW,
       wallH: state.wallH,
+      centreHeight: state.centreHeight,
       palette: palette ?? (currentTheme() === 'dark' ? PALETTE.dark : PALETTE.light),
     });
   }
@@ -262,6 +264,7 @@ export function createApp({ document: doc, window: win, storage }) {
     $('#wall-height').value = String(state.wallH);
     $('#gap').value = String(state.gap);
     $('#hanger-drop').value = String(state.hangerDrop ?? 0);
+    $('#centre-height').value = String(state.centreHeight ?? 0);
     $('#order').value = String(Math.round(state.options.order * 100));
     $('#opt-rotate').checked = state.options.allowRotation;
     $('#opt-use-all').checked = state.options.useAll;
@@ -281,6 +284,7 @@ export function createApp({ document: doc, window: win, storage }) {
       ['#wall-width', 'wallW'],
       ['#wall-height', 'wallH'],
       ['#gap', 'gap'],
+      ['#centre-height', 'centreHeight'],
     ];
     for (const [selector, key] of numberFields) {
       on($(selector), 'input', () => {

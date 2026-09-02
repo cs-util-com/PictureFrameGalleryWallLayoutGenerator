@@ -33,6 +33,16 @@ export const DEFAULT_OPTIONS = Object.freeze({
   order: 0.5,
 });
 
+/**
+ * Centimetres from the floor to the centre of the arrangement.
+ *
+ * Galleries hang the centre of a work — or of a whole cluster, treated as one
+ * work — at average standing eye level. 145 cm is the long-standing museum
+ * figure (the "57 inch rule") and the same number the German trade quotes as
+ * 145–150 cm Boden bis Bildmitte.
+ */
+export const EYE_LEVEL = 145;
+
 /** Independent annealing runs per frame count. The best valid one wins. */
 const RUNS_PER_ATTEMPT = 3;
 
@@ -95,7 +105,15 @@ const ALIGN_SNAP_MAX = 1.5;
  *   'does-not-fit'. `stats` reports how much work the search did, which lets
  *   tests bound the cost deterministically instead of timing it.
  */
-export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) {
+export function generateLayout({
+  inventory,
+  wallW,
+  wallH,
+  gap,
+  seed,
+  options,
+  centreHeight = EYE_LEVEL,
+}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const rows = normalizeInventory(inventory);
   const available = expandInventory(rows);
@@ -107,6 +125,7 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
     h: Math.max(0, Number(wallH) || 0),
   };
   const spacing = Math.max(0, Number(gap) || 0);
+  const anchor = Math.max(0, Number(centreHeight) || 0);
 
   if (!(wall.w > 0) || !(wall.h > 0)) {
     return emptyResult(total, ['invalid-wall']);
@@ -142,7 +161,7 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
   stats.attempts++;
   best = searchLayout(candidates, wall, spacing, opts, rng, limits, stats, RUNS_PER_ATTEMPT);
   if (best) {
-    centerOnWall(best.frames, wall.w, wall.h);
+    positionOnWall(best.frames, wall.w, wall.h, anchor);
     return describeResult(best, selected, total, wall, notices, stats);
   }
 
@@ -208,7 +227,7 @@ export function generateLayout({ inventory, wallW, wallH, gap, seed, options }) 
   );
   if (polished && polished.energy < best.energy) best = polished;
 
-  centerOnWall(best.frames, wall.w, wall.h);
+  positionOnWall(best.frames, wall.w, wall.h, anchor);
   return describeResult(best, selected, total, wall, notices, stats);
 }
 
@@ -699,12 +718,32 @@ export const __testing = {
   },
 };
 
-/** Slides the finished arrangement so its bounding box sits centred on the wall. */
-function centerOnWall(frames, wallW, wallH) {
+/**
+ * Slides the finished arrangement into its final place on the wall: centred
+ * horizontally, and vertically so the group's centre sits at eye level.
+ *
+ * Galleries hang a whole cluster as though it were one picture, putting its
+ * combined centre 145 cm up. Centring on the wall instead puts it at `wallH/2`,
+ * which is only eye level on a 290 cm ceiling and is 20 cm low on a standard
+ * 250 cm one — an error nobody can correct once the holes are drilled.
+ *
+ * @param {number} centreHeight Centimetres from the floor to the group's
+ *   centre. Zero means "just centre it on the wall".
+ */
+function positionOnWall(frames, wallW, wallH, centreHeight) {
   const box = boundingBox(frames);
   if (!box) return;
   const dx = wallW / 2 - (box.minX + box.maxX) / 2;
-  const dy = wallH / 2 - (box.minY + box.maxY) / 2;
+
+  // `centreHeight` is measured up from the floor; y runs down from the ceiling.
+  const targetY = centreHeight > 0 ? wallH - centreHeight : wallH / 2;
+  let dy = targetY - (box.minY + box.maxY) / 2;
+
+  // A tall group under a low ceiling cannot reach eye level. Keep it on the
+  // wall rather than hanging frames through the ceiling or the floor; on a wall
+  // too short to hold the group at all, the top edge wins.
+  dy = Math.max(-box.minY, Math.min(dy, wallH - box.maxY));
+
   for (const f of frames) {
     f.x += dx;
     f.y += dy;
